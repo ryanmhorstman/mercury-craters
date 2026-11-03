@@ -28,3 +28,8 @@ Tests: `conda run -n mercury-craters python -m pytest`
 
 - Plan: [docs/PLAN.md](docs/PLAN.md)
 - Phase 0 inventory: [docs/phase0-inventory.md](docs/phase0-inventory.md)
+
+## License
+
+Code is released under the [MIT License](LICENSE). The thesis catalog and the USGS
+basemap are not covered by it and are not distributed with this repository.
