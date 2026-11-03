@@ -1,6 +1,7 @@
 """Phase 4: adjudicate disagreements between the catalog and the detectors.
 
     python -m craters.phase4 register  # correct the catalog's north-south registration (writes a working copy)
+    python -m craters.phase4 register-labels  # same, extended over train + V1, for retraining the CNN
     python -m craters.phase4 build     # make the review queue from data/detections/*.parquet
     python -m craters.phase4 review    # open the review app at http://localhost:8765
     python -m craters.phase4 report    # original vs adjusted metrics, from the verdicts so far
@@ -9,6 +10,7 @@ Verdicts live in adjudication/verdicts.csv, which is tracked in git. They are
 hand-made data, unlike everything under data/ and outputs/.
 """
 import argparse
+import json
 
 import pandas as pd
 
@@ -16,7 +18,7 @@ from .adjudicate import adjusted_metrics, build_items, catalog_summary, verdicts
 from .catalog import load_eval_catalog
 from .config import load_config
 from .metrics import bin_labels
-from .registration import register
+from .registration import matched_offsets, register
 
 
 def detectors(cfg):
@@ -57,6 +59,72 @@ def register_catalog(cfg):
     fig.savefig(out / "registration_shift_map.png", dpi=110, bbox_inches="tight")
     plt.close(fig)
     print(f"wrote {cfg['paths']['catalog_registered']} and {out / 'registration_shift_map.png'}")
+
+
+def label_detector(cfg, name):
+    """The already-tuned detector behind data/detections/<name>.parquet, as (detect_fn, score cutoff)."""
+    if name == "hough":
+        from .detectors import hough
+
+        chosen = json.loads((cfg["paths"]["phase2"].parent / "phase3" / "hough_params.json").read_text())
+        return (lambda im, t, lvl: hough.detect(im, t, lvl, chosen["params"])), chosen["score_cutoff"]
+    from .detectors.cnn import Detector
+
+    models = cfg["paths"]["models"]
+    best = json.loads((models / f"{name}_best.json").read_text())
+    level_downsample = cfg["detectors"]["cnn"]["level_downsample"]
+    return Detector(models / f"{name}_best.pt", level_downsample, min_score=best["score_cutoff"]), best["score_cutoff"]
+
+
+def register_training_labels(cfg):
+    """Registration as in `register`, with the shift field also covering train + V1.
+
+    The test-region shift field comes from test-region detections only, so train
+    and V1 craters were never moved. Here the same detectors run over every train
+    tile and every tile touching V1, and the registration is rebuilt from all of
+    them, for CNN labels only. Scoring keeps using catalog_registered.
+    """
+    from .detect import detect_on_tiles, tiles_covering
+    from .geo import in_box
+
+    params = cfg["registration"]
+    tiles = pd.read_parquet(cfg["paths"]["tiles"])
+    v1 = list(cfg["regions"]["validation"].values())
+    chosen = pd.concat([tiles[tiles["split"] == "train"],
+                        *(tiles_covering(tiles, v1, level) for level in cfg["tiling"]["levels"])])
+    chosen = chosen.drop_duplicates("tile_id")
+    out_dir = cfg["paths"]["detections_labels"]
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    found = {}
+    for name in params["detectors"]:
+        path = out_dir / f"{name}.parquet"
+        if not path.exists():
+            print(f"running {name} over {len(chosen)} train + V1 tiles", flush=True)
+            detect_fn, cutoff = label_detector(cfg, name)
+            detections = detect_on_tiles(detect_fn, chosen, cfg)
+            detections[detections["score"] >= cutoff].reset_index(drop=True).to_parquet(path, index=False)
+        found[name] = pd.concat([pd.read_parquet(cfg["paths"]["detections"] / f"{name}.parquet"),
+                                 pd.read_parquet(path)], ignore_index=True)
+
+    catalog = pd.read_parquet(cfg["paths"]["catalog"])
+    # The old CNN trained on unshifted train labels; if it had learned the shift, its
+    # train-region offsets would sit near 0 while Hough's stay negative.
+    offsets = matched_offsets(catalog, found, cfg["match"], params["min_diameter_km"])
+    offsets["area"] = "train / other"
+    for name, box in {**cfg["regions"]["test"], **cfg["regions"]["validation"]}.items():
+        offsets.loc[in_box(offsets["lat"].to_numpy(), offsets["lon"].to_numpy(), box), "area"] = name
+    print("median north offset before correction (km), area x detector:")
+    print(offsets.pivot_table(index="area", columns="detector", values="north_km", aggfunc="median").round(2).to_string())
+
+    corrected, history = register(catalog, found, cfg["match"], params)
+    corrected.to_parquet(cfg["paths"]["catalog_registered_labels"], index=False)
+    print(history.to_string(index=False))
+    summary = corrected.groupby("split").agg(craters=("registered", "size"), moved=("registered", "sum"),
+                                             median_shift_km=("north_shift_km", "median"),
+                                             largest_shift_km=("north_shift_km", "min"))
+    print(summary.round(2).to_string())
+    print(f"wrote {cfg['paths']['catalog_registered_labels']}")
 
 
 def build(cfg):
@@ -105,12 +173,14 @@ def report(cfg):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("step", choices=["register", "build", "review", "report"])
+    parser.add_argument("step", choices=["register", "register-labels", "build", "review", "report"])
     parser.add_argument("--port", type=int, default=8765)
     args = parser.parse_args()
     cfg = load_config()
     if args.step == "register":
         register_catalog(cfg)
+    elif args.step == "register-labels":
+        register_training_labels(cfg)
     elif args.step == "build":
         build(cfg)
     elif args.step == "report":

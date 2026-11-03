@@ -61,11 +61,16 @@ def run_detector(detect_fn, tiles, boxes, cfg, levels=None, images=None, progres
     images: optional dict tile_id -> uint8 array, to skip disk reads when the
     same tiles are scored many times (parameter tuning).
     """
+    chosen = pd.concat([tiles_covering(tiles, boxes, name) for name in cfg["tiling"]["levels"]
+                        if not levels or name in levels])
+    return detect_on_tiles(detect_fn, chosen, cfg, images, progress)
+
+
+def detect_on_tiles(detect_fn, tiles, cfg, images=None, progress=True):
+    """Detect over exactly the given tiles (any mix of levels), then merge repeats."""
     found = []
     for level_name, level_cfg in cfg["tiling"]["levels"].items():
-        if levels and level_name not in levels:
-            continue
-        chosen = tiles_covering(tiles, boxes, level_name)
+        chosen = tiles[tiles["level"] == level_name]
         for i, (_, row) in enumerate(chosen.iterrows()):
             tile = tile_from_row(row)
             image = images[tile.tile_id] if images is not None and tile.tile_id in images else load_tile_image(tile, cfg)

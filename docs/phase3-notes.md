@@ -113,6 +113,63 @@ What it shows:
   craters can be added as labels and the model retrained.
 - Checkpoint selection uses a noisy V1 metric; a larger validation area would make it steadier.
 
+## 3.3b Retraining on registered labels (2026-11-03)
+
+```
+conda run -n mercury-craters python -m craters.phase4 register-labels   # ~25 min: both detectors over train + V1 tiles
+conda run -n mercury-craters python -m craters.phase3 cnn               # ~40 min; model_name / use_registered_labels in config
+```
+
+**Why a separate registration:** the Phase 4 shift field is built from test-region detections, so it
+had moved only 364 of 11,902 train craters and none in V1. `register-labels` runs the old CNN and the
+tuned Hough over every train tile and every tile touching V1 (`data/detections_labels/`). It then
+rebuilds the same north-south field (same `registration:` settings) into
+`catalog_registered_labels.parquet`. That copy is used only for CNN training and V1 selection. Test
+scoring still uses `catalog_registered.parquet`, unchanged.
+- **Shift moved 10,350 train craters,** median −1.11 km, largest −6.7 km. In V1, 413 craters moved,
+  median **+0.66 km**: the only region where the catalog sits *south* of the basemap.
+- **The old CNN hadn't learned the shift:** before correction, its median train-area offset (−1.09 km)
+  matches Hough's (−1.07 km).
+
+**New model** `cnn_reg` (`data/models/cnn_reg_best.pt`; the old `cnn_best.pt` is kept):
+- **Selected at epoch 8, score ≥ 0.2, V1 F1 0.600.** Its V1 F1 isn't comparable to the old 0.600:
+  V1 labels moved too.
+- **It makes fewer detections:** 2,723 on T1–T3, against 3,481.
+
+**T1–T3, old `cnn` → new `cnn_reg`** (F1; precision / recall for "all" and 5–10 km):
+
+| Catalog | Scoring | all | 5–10 | 10–20 | 20–50 | 50+ |
+|---|---|---:|---:|---:|---:|---:|
+| original | raw | 0.557 → **0.589** | 0.394 → 0.403 | 0.747 → 0.737 | 0.737 → 0.792 | 0.806 → 0.803 |
+| registered | raw | 0.586 → **0.609** | 0.439 → 0.433 | 0.764 → 0.755 | 0.739 → 0.795 | 0.806 → 0.803 |
+| registered | verdict-adjusted | 0.718 → **0.645** | 0.634 → 0.470 | 0.827 → 0.818 | 0.826 → 0.855 | 0.838 → 0.829 |
+
+| Registered, raw | old P / R | new P / R |
+|---|---|---|
+| all | 0.600 / 0.572 | 0.755 / 0.510 |
+| 5–10 km | 0.459 / 0.420 | 0.681 / 0.317 |
+
+What it shows:
+- **No 5–10 km gain.** Retraining traded recall for precision. Precision against the catalog rose
+  from 46% to 68%, but recall fell from 42% to 32%. Raw F1 is flat at 5–10 km and up ~0.02 overall,
+  mostly from 20–50 km.
+- **The verdict-adjusted F1 dropped (0.718 → 0.645)** because the review shows many of the old model's
+  extra 5–10 km detections were real craters, and the new model finds fewer of them.
+  - The new model's adjusted numbers lean more on extrapolation: its own detections are mostly unreviewed.
+  - Adding `cnn_reg` to the report changes the review item set, so the old CNN's adjusted F1
+    reads 0.718 here, not 0.724.
+- **The likely culprit is checkpoint selection, not the labels.** Epoch 8 is early, and V1 F1 is noisy
+  (±0.05). Epoch 16 had V1 F1 0.589 at a much higher recall (0.77 vs 0.56). For a mapping tool, a
+  recall-weighted or verdict-informed selection would probably serve better than raw V1 F1 against
+  an incomplete catalog.
+- `config/default.yaml` now points at `cnn_reg`. Set `model_name: cnn` and
+  `use_registered_labels: false` to get back the original setup.
+
+**For the global run:**
+- Choose which checkpoint to use first. The old `cnn` has the best verdict-adjusted F1.
+- Activate the env (or put `<env>\Library\bin` on PATH): plain `python.exe` without it crashes
+  in matplotlib with Windows error 0xc06d007f (a DLL load failure).
+
 ## Next
 
 - Phase 4 adjudication. Recommended next: it decides whether the 5–10 km "false positives" are real.

@@ -79,16 +79,16 @@ def run_cnn(cfg, skip_training=False):
     from .train_cnn import train
 
     params = cfg["detectors"]["cnn"]
-    models = cfg["paths"]["models"]
-    best = json.loads((models / "cnn_best.json").read_text()) if skip_training else train(cfg)
+    models, name = cfg["paths"]["models"], params["model_name"]
+    best = json.loads((models / f"{name}_best.json").read_text()) if skip_training else train(cfg)
 
     print(f"running on T1-T3 with epoch {best['epoch']} checkpoint, score >= {best['score_cutoff']}")
     tiles = pd.read_parquet(cfg["paths"]["tiles"])
-    detector = Detector(models / "cnn_best.pt", params["level_downsample"], min_score=best["score_cutoff"])
+    detector = Detector(models / f"{name}_best.pt", params["level_downsample"], min_score=best["score_cutoff"])
     test_boxes = list(cfg["regions"]["test"].values())
     detections = run_detector(detector, tiles, test_boxes, cfg)
     cfg["paths"]["detections"].mkdir(parents=True, exist_ok=True)
-    detections.to_parquet(cfg["paths"]["detections"] / "cnn.parquet", index=False)
+    detections.to_parquet(cfg["paths"]["detections"] / f"{name}.parquet", index=False)
     print(f"wrote {len(detections)} detections")
 
 

@@ -112,8 +112,8 @@ conda run -n mercury-craters python -m craters.phase4 register   # writes data/p
 
 **Not corrected:**
 - The east-west registration (unknown to about ±1–2 km).
-- The CNN's training labels, which carry the uncorrected shift. Retraining on registered
-  labels is a likely improvement for 5–10 km.
+- The original CNN's training labels. A retrain on registered labels (`cnn_reg`) is in
+  phase3-notes.md §3.3b: higher precision, lower 5–10 km recall.
 
 ## Assumptions to keep in mind
 

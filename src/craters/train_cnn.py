@@ -6,6 +6,9 @@ Each training sample is a "view" of a cached tile:
 Craters outside a view's size range are marked "ignore", not "no crater".
 Augmentation: random scale, the 8 flips/rotations, brightness/contrast/gamma.
 
+Labels are the original catalog, or (detectors.cnn.use_registered_labels) the
+north-south registered copy built by `python -m craters.phase4 register-labels`.
+
 Test regions T1-T3 are never read here.
 """
 import json
@@ -120,7 +123,9 @@ def train(cfg):
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
     tiles = pd.read_parquet(cfg["paths"]["tiles"])
-    catalog = pd.read_parquet(cfg["paths"]["catalog"])
+    labels = cfg["paths"]["catalog_registered_labels"] if params["use_registered_labels"] else cfg["paths"]["catalog"]
+    catalog = pd.read_parquet(labels)
+    print(f"labels: {labels}", flush=True)
     train_tiles = tiles[tiles["split"] == "train"]
     dataset = TileViews(train_tiles, catalog, cfg, params, cfg["seed"])
     sampler = EpochSampler(params["samples_per_epoch"])
@@ -138,6 +143,7 @@ def train(cfg):
 
     out_dir = cfg["paths"]["models"]
     out_dir.mkdir(parents=True, exist_ok=True)
+    name = params["model_name"]
     history, best = [], {"f1": -1.0}
     for epoch in range(1, params["epochs"] + 1):
         sampler.epoch = epoch
@@ -164,11 +170,11 @@ def train(cfg):
                            "v1_cutoff": top["score_cutoff"]})
             if top["f1"] > best["f1"]:
                 best = {"f1": float(top["f1"]), "epoch": epoch, "score_cutoff": float(top["score_cutoff"])}
-                torch.save({"model": model.state_dict(), "epoch": epoch}, out_dir / "cnn_best.pt")
+                torch.save({"model": model.state_dict(), "epoch": epoch}, out_dir / f"{name}_best.pt")
         history.append(record)
         print(" ".join(f"{k}={v:.4g}" if isinstance(v, float) else f"{k}={v}" for k, v in record.items()), flush=True)
 
-    pd.DataFrame(history).to_csv(out_dir / "cnn_history.csv", index=False)
-    (out_dir / "cnn_best.json").write_text(json.dumps(best, indent=2))
+    pd.DataFrame(history).to_csv(out_dir / f"{name}_history.csv", index=False)
+    (out_dir / f"{name}_best.json").write_text(json.dumps(best, indent=2))
     print(f"best V1 F1 {best['f1']:.3f} at epoch {best['epoch']} (score >= {best['score_cutoff']})")
     return best
