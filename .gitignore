@@ -1,0 +1,12 @@
+data/
+outputs/
+*.egg-info/
+*.parquet
+*.tif
+*.tiff
+*.img
+*.xlsx
+__pycache__/
+.ipynb_checkpoints/
+.venv/
+.claude/

@@ -1,0 +1,27 @@
+# Main environment. PyTorch comes from the CUDA 12.4 wheel index (NVIDIA GPU);
+# drop the --extra-index-url line for a CPU-only install.
+# Create with:  conda env create -f environment.yml
+name: mercury-craters
+channels:
+  - conda-forge
+dependencies:
+  - python=3.12
+  - gdal=3.10
+  - rasterio=1.4
+  - pyproj=3.7
+  - numpy=2.1
+  - pandas=2.2
+  - pyarrow=18
+  - scipy=1.14
+  - matplotlib=3.9
+  - openpyxl=3.1
+  - pyyaml=6.0
+  - pytest=8.3
+  - opencv=4.10
+  - scikit-image=0.24
+  - pip
+  - pip:
+      - --extra-index-url https://download.pytorch.org/whl/cu124
+      - torch==2.5.1
+      - torchvision==0.20.1
+      - -e .

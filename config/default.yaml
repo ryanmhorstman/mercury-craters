@@ -1,0 +1,147 @@
+# All paths, thresholds and region definitions live here.
+# Relative paths are resolved against the repo root.
+
+seed: 42
+
+body:
+  name: Mercury
+  radius_m: 2439400.0          # sphere used by both USGS rasters
+
+paths:
+  # Copy of the original thesis workbook (not in git). Read-only: nothing in this project writes to it.
+  catalog_xlsx: "data/raw/Mercury Crater Catalogue 1.0.xlsx"
+  basemap_raw: data/raw/Mercury_MESSENGER_MDIS_Basemap_BDR_Mosaic_Global_166m.tif
+  dem_raw: data/raw/Mercury_Messenger_USGS_DEM_Global_665m_v2.tif
+  basemap: data/interim/basemap_166m_cog.tif    # tiled + compressed copy of basemap_raw
+  catalog: data/processed/catalog.parquet
+  catalog_registered: data/processed/catalog_registered.parquet   # north-south corrected copy (Phase 4)
+  catalog_duplicates: data/processed/catalog_duplicates.csv
+  tiles: data/processed/tiles.parquet
+  figures: outputs/phase1
+  detections: data/detections          # one <detector>.parquet per detector: lat, lon, diameter_km, score
+  phase2: outputs/phase2
+  models: data/models
+  review_items: data/processed/review_items.csv
+  verdicts: adjudication/verdicts.csv      # tracked in git: hand-made data
+  phase4: outputs/phase4
+
+catalog:
+  # Sheets in priority order. When two entries describe the same crater, the
+  # entry from the earlier sheet is kept and the other is recorded as a duplicate.
+  sheets:
+    - Peak Ring Basins
+    - ProtoBasins
+    - Central Pits
+    - Central Peaks
+    - Simple Craters
+
+# One rule for "same crater", used for catalog de-duplication, for merging
+# detections across overlapping tiles, and (Phase 2) for matching.
+match:
+  center_frac: 0.5        # center distance <= center_frac * diameter
+  ratio_min: 0.75         # diameter ratio within [ratio_min, ratio_max]
+  ratio_max: 1.33
+
+evaluation:
+  diameter_bins_km: [5, 10, 20, 50, .inf]    # first edge is the minimum diameter counted
+  use_registered_catalog: true               # score against the north-south corrected catalog when it exists
+  sfd_range_km: [5, 400]
+  # Sanity runs scored alongside the real detectors. Labelled "sanity:" in every output.
+  sanity:
+    noisy:
+      recall_small: 0.5
+      recall_large: 0.95
+      half_km: 10.0
+      center_sigma_frac: 0.08
+      diameter_sigma: 0.06
+      fp_per_box: 100
+
+# Boxes are [lon_min_E, lon_max_E, lat_min, lat_max], east longitude 0-360.
+regions:
+  test:
+    T1: [270, 300, 0, 30]      # equatorial
+    T2: [300, 330, 30, 60]     # mid-north, tests reprojection at higher latitude
+    T3: [60, 90, -30, 0]       # southern
+  validation:
+    V1: [150, 180, -30, 0]     # tuning only; never T1-T3
+  train:
+    max_abs_lat: 60
+    buffer_deg: 5              # gap kept between train and any test/validation box
+    exclude:                   # catalog looks incomplete here (see docs/phase0-inventory.md)
+      - [180, 240, -90, 90]    # low-density stripe in every latitude band
+      - [0, 60, -60, -30]      # low share of 5-10 km craters
+      - [90, 270, -60, -30]
+      - [240, 270, 30, 60]
+
+tiling:
+  # Each tile is reprojected to a stereographic projection centred on the tile,
+  # so craters stay circular at any latitude. A crater is fully inside at least
+  # one tile when its diameter <= overlap_px * pixel_m.
+  levels:
+    fine:
+      source: basemap
+      pixel_m: 166.31
+      size_px: 1024
+      overlap_px: 256          # 42.6 km
+      detect_km: [5, 40]
+    coarse:
+      source: basemap
+      pixel_m: 665.24
+      size_px: 1024
+      overlap_px: 512          # 340.6 km
+      detect_km: [30, 400]
+  lat_limit: 60                # tiles are generated within +/- this latitude
+
+detectors:
+  hough:
+    # Tuned on validation region V1 only: every combination below is run, then
+    # the rim-support score cutoff is swept, and the best V1 F1 wins.
+    grid:
+      - {method: gradient, accumulator: 14, canny_high: 120}
+      - {method: gradient, accumulator: 18, canny_high: 120}
+      - {method: gradient, accumulator: 22, canny_high: 120}
+      - {method: gradient, accumulator: 18, canny_high: 80}
+      - {method: gradient, accumulator: 18, canny_high: 180}
+      - {method: alt, accumulator: 0.6, canny_high: 150}
+      - {method: alt, accumulator: 0.7, canny_high: 150}
+      - {method: alt, accumulator: 0.8, canny_high: 150}
+      - {method: alt, accumulator: 0.7, canny_high: 100}
+      - {method: alt, accumulator: 0.85, canny_high: 150}
+      - {method: alt, accumulator: 0.9, canny_high: 150}
+      - {method: alt, accumulator: 0.8, canny_high: 110}
+      - {method: alt, accumulator: 0.8, canny_high: 200}
+    score_cutoffs: [0.0, 0.5, 0.6, 0.7, 0.8, 0.85, 0.9, 0.95]
+  cnn:
+    # Trained on the train split; the checkpoint and score cutoff are chosen by V1 F1.
+    crop_px: 512
+    batch_size: 12
+    epochs: 40
+    samples_per_epoch: 4800
+    lr: 0.0006
+    weight_decay: 0.0001
+    workers: 4
+    coarse_fraction: 0.2          # share of samples drawn from coarse tiles
+    scale_jitter: [0.75, 1.33]    # random zoom on fine crops
+    label_km:                     # craters outside these ranges are "ignore", not "no crater"
+      fine: [5, 40]
+      coarse: [30, 400]
+    level_downsample:             # coarse tiles are shrunk 2x so big craters fit the trained radii
+      fine: 1
+      coarse: 2
+    eval_every: 4
+    score_cutoffs: [0.1, 0.15, 0.2, 0.25, 0.3, 0.35, 0.4, 0.5, 0.6]
+
+registration:
+  # The catalog sits up to ~7 km north of the same craters on the USGS basemap,
+  # varying from place to place; see src/craters/registration.py.
+  min_diameter_km: 10      # only craters big enough that the shift doesn't stop them matching
+  radius_deg: 5            # neighbourhood for the local median (~210 km)
+  min_pairs: 15            # fewer matched pairs nearby -> leave the crater uncorrected
+  iterations: 2
+  detectors: [cnn, hough]
+
+viewer:
+  samples_per_region: 1
+  alignment_craters:           # [lon_E, lat] of named craters, to check basemap/DEM/catalog alignment
+    Rachmaninoff: [57.08, 27.77]
+    Praxiteles: [299.77, 27.20]
