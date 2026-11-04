@@ -89,10 +89,15 @@ class TileViews(Dataset):
             view = cv2.resize(view, (crop, crop), interpolation=interp)
             c = (circles - [x0, y0, 0]) * (crop / src)
 
+        polar = tile.split == "polar_train"
+        if polar:
+            # The polar catalog is thin, below ~10 km especially: train on its craters >= 10 km
+            # as positives, but never treat the unlabelled ground there as "no crater".
+            lo = max(lo, p.get("polar_label_min_km", lo))
         label = (diameter_km >= lo) & (diameter_km <= hi)
         view, c = dihedral(view, c, rng.integers(8), crop)
         view = photometric(view, rng)
-        targets = make_targets(c[label], c[~label], crop)
+        targets = make_targets(c[label], c[~label], crop, ignore_background=polar)
         targets["image"] = standardize(view)[None]
         return {k: torch.from_numpy(np.ascontiguousarray(v)) for k, v in targets.items()}
 
@@ -139,6 +144,16 @@ def validate(model, cfg, params, tiles, catalog, images):
     return pd.DataFrame(rows)
 
 
+def polar_train_tiles(cfg):
+    """Polar-cap tiles of the global run in the polar training area (regions.polar), split re-assigned."""
+    from .regions import assign_split
+
+    tiles = pd.read_parquet(cfg["paths"]["tiles_global"])
+    tiles = tiles[np.abs(tiles["lat0"]) >= cfg["regions"]["train"]["max_abs_lat"]].copy()
+    tiles["split"] = assign_split(tiles["lat0"], tiles["lon0"], cfg["regions"])
+    return tiles[tiles["split"] == "polar_train"]
+
+
 def train(cfg):
     params = cfg["detectors"]["cnn"]
     torch.manual_seed(cfg["seed"])
@@ -150,6 +165,9 @@ def train(cfg):
     catalog = pd.read_parquet(labels)
     print(f"labels: {labels}", flush=True)
     train_tiles = tiles[tiles["split"] == "train"]
+    if params.get("polar_training"):
+        train_tiles = pd.concat([train_tiles, polar_train_tiles(cfg)], ignore_index=True)
+        print(f"training tiles incl. polar caps: {train_tiles['level'].value_counts().to_dict()}", flush=True)
     dataset = TileViews(train_tiles, catalog, cfg, params, cfg["seed"])
     sampler = EpochSampler(params["samples_per_epoch"])
     loader = DataLoader(dataset, batch_size=params["batch_size"], sampler=sampler, num_workers=params["workers"],

@@ -34,3 +34,14 @@ def test_level_detector_dispatches_by_level():
     assert detector(None, Tile("coarse"), None) == "tuned"
     assert run_name({"model_name": "m", "level_models": {"coarse": "m_ft"}}) == "m+coarse-m_ft"
     assert run_name({"model_name": "m", "level_models": {}}) == "m"
+
+
+def test_polar_split_keeps_an_arc_buffer_round_its_test_box():
+    from craters.regions import assign_split
+
+    regions = {"test": {}, "validation": {},
+               "train": {"max_abs_lat": 60, "buffer_deg": 5, "exclude": []},
+               "polar": {"test": {"P1": [120, 180, 65, 85]}}}
+    lat = [75, 75, 75, 75, 55]
+    lon = [150, 115, 100, 300, 150]   # inside; 5 deg lon at 65N is only ~2 deg of arc; ~20 deg lon away; far; not polar
+    assert assign_split(lat, lon, regions).tolist() == ["P1", "excluded", "polar_train", "polar_train", "train"]

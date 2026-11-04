@@ -37,15 +37,19 @@ WHOLE_PLANET = [0.0, 360.0, -90.0, 90.001]
 
 # Areas for match statistics, from how much the model's training and selection saw of each.
 AREA_ORDER = ["T1-T3 (held out)", "V1 (checkpoint selection)", "train (labels seen)",
-              "other |lat|<60 (not trained)", "polar |lat|>=60 (not trained)"]
+              "other |lat|<60 (not trained)", "polar |lat|>=60 outside P1-P2", "P1-P2 (polar held out)"]
 
 
 def area_of(lat, lon, regions):
+    """Area of each point. Whether a model trained on the polar caps outside P1-P2
+    depends on detectors.cnn.polar_training; P1-P2 are never trained on."""
     split = assign_split(lat, lon, regions)
     area = np.where(np.isin(split, list(regions["test"])), AREA_ORDER[0],
                     np.where(split == "V1", AREA_ORDER[1],
                              np.where(split == "train", AREA_ORDER[2], AREA_ORDER[3])))
-    return np.where(np.abs(np.asarray(lat)) >= regions["train"]["max_abs_lat"], AREA_ORDER[4], area)
+    area = np.where(np.abs(np.asarray(lat)) >= regions["train"]["max_abs_lat"], AREA_ORDER[4], area)
+    polar_test = list(regions.get("polar", {}).get("test", {}))
+    return np.where(np.isin(split, polar_test), AREA_ORDER[5], area)
 
 
 def band_label(band):

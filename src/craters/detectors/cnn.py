@@ -75,16 +75,18 @@ def standardize(image):
     return (image - image.mean()) / (image.std() + 1e-6)
 
 
-def make_targets(craters, ignore, size):
+def make_targets(craters, ignore, size, ignore_background=False):
     """Training targets for one crop.
 
     craters: (n, 3) array of col, row, radius in crop pixels, to be detected.
     ignore:  (m, 3) array of circles the model shouldn't be punished for finding
              (catalog craters outside the trained size range).
+    ignore_background: no "no crater here" loss anywhere in the crop, only the
+             labelled craters count (crops where the catalog is known to be incomplete).
     """
     out = size // STRIDE
     heat = np.zeros((out, out), np.float32)
-    ignore_mask = np.zeros((out, out), np.float32)
+    ignore_mask = np.full((out, out), 1.0 if ignore_background else 0.0, np.float32)
     index = np.zeros(MAX_OBJECTS, np.int64)
     offset = np.zeros((MAX_OBJECTS, 2), np.float32)
     logr = np.zeros(MAX_OBJECTS, np.float32)

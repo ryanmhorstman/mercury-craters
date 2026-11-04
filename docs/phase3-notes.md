@@ -344,6 +344,54 @@ The remaining large-crater gap needs more big-crater training examples than the 
 holds. One route is labelling ≥ 50 km craters in the excluded areas: they were left out of training
 for thin *small*-crater coverage, which shouldn't affect big craters.
 
+## 3.3f Poles: diagnosis and a retrain that didn't help (2026-11-04)
+
+At |lat| ≥ 60° the global run scores F1 0.32 raw. Two polar boxes are now held out for testing,
+P1 (120–180°E, 65–85°N) and P2 (300–360°E, 65–85°S), under `regions.polar.test`. Their buffer is
+5° of arc, so the longitude margin is widened by 1/cos(lat). `cnn_reg_f2` scores F1 0.165 there.
+
+**Diagnosis:**
+- **The polar catalog is thin at small sizes.** It lists 386 craters at 5–10 km against 527 at
+  10–20 km, the reverse of every other area. So polar precision mostly measures what the catalog
+  left out.
+- **Positions are scattered.**
+  - Local median north offsets are 1–4 km and vary with longitude.
+  - Individual centre offsets reach ~0.5 D. A contact sheet shows the CNN circle on the bright
+    rim/shadow pair and the catalog circle shifted along the lighting direction.
+  - Polar recall at 5–10 km goes from 0.28 to 0.54 when the centre rule is relaxed from 0.5·D to
+    1·D.
+- **The detector misses craters too.** Even at 1·D, polar recall at 10–50 km is only 0.56–0.64,
+  against 0.84–0.86 below 45°.
+
+**Tried:**
+1. **North-south registration of the unregistered catalog craters**, using the global run as the
+   detector (`registration.register`, same settings). Only 456 polar craters had the 15 nearby
+   pairs needed, and polar F1 went from 0.301 to 0.313. This wasn't adopted.
+2. **`cnn_polar`: retraining with polar-cap tiles** (`detectors.cnn.polar_training`; polar labels
+   under 10 km ignored).
+   - V1 recall collapsed after epoch 4, from 0.83 to 0.5–0.6 (`cnn_reg_f2` stays at ~0.83).
+   - The likely cause seemed to be the thin catalog: every unlisted small polar crater was taught
+     as "no crater".
+3. **The same retrain, but polar crops counting positives only** (no background loss,
+   `make_targets(ignore_background=True)`).
+   - V1 still dipped after epoch 16, so that wasn't the whole cause.
+   - The best checkpoint (epoch 16, V1 F2 0.735 against 0.745) scored:
+
+     | | `cnn_reg_f2` | `cnn_polar` |
+     |---|---:|---:|
+     | T1–T3 F1 | 0.619 | 0.616 |
+     | P1–P2 F1 | 0.165 | 0.147 |
+     | P1–P2 recall | 0.38 | 0.41 |
+     | Polar training area F1 | 0.321 | 0.283 |
+
+   - It finds a little more, but with many more false positives at ≥ 20 km.
+
+Even a model trained on polar tiles finds only ~0.2 of P1–P2's 10–20 km catalog craters. That
+suggests the catalog and this basemap don't describe the same polar features well: different
+source images, with different lighting at high incidence. More training alone won't fix that.
+`polar_training` is left off. Both attempts are kept in `data/models/cnn_polar_v1_attempt/` and
+`data/models/cnn_polar_attempt2/` (not in git).
+
 ## Next
 
 - Phase 4 adjudication. Recommended next: it decides whether the 5–10 km "false positives" are real.

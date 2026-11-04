@@ -51,9 +51,21 @@ Whole-planet cumulative ratio, CNN / catalog, N(≥D):
 - **The 30–45 km bump (1.48) is partly a level effect.** The fine level rarely detects craters over
   25 km, so 22–30 km craters are found by the coarse level, drawn up to ~30% large and counted in
   the 30–35 km bin. The V1 cutoff search kept 0.15 for 20–40 km, so calibration leaves it in.
-- **Polar areas are now the weakest by far:** F1 0.36, against 0.54 for the other untrained areas.
-  At the poles, recall at 5–10 km is only 0.19. Polar lighting is unlike anything in training, and
-  polar catalog positions were never registered.
+- **The poles are the weakest area, and retraining didn't fix them.** Calibrated F1 is 0.38 at
+  |lat| ≥ 60°, and 0.21 in the two held-out polar boxes P1 and P2 (`regions.polar`, 133 catalog
+  craters). Three things are mixed together there:
+  - **The catalog is thin.** It lists fewer 5–10 km craters than 10–20 km ones at the poles; every
+    other area has the reverse.
+  - **Positions don't line up.** Centre offsets are scattered and as large as half a diameter.
+    Polar recall at 5–10 km is 0.28 under the 0.5·D rule and 0.54 under 1·D.
+  - **The detector misses craters.** Even at 1·D, polar recall at 10–50 km is only 0.56–0.64.
+
+  Three fixes were tried, and none helped (`docs/phase3-notes.md` §3.3f):
+  - extending the north-south registration to the poles;
+  - two retrains that included polar tiles;
+  - one of those retrains with polar labels under 10 km ignored.
+
+  P1–P2 F1 stayed at 0.15–0.17.
 
 What was tried for the large craters and didn't work is in `docs/phase3-notes.md` §3.3e: a lower
 cutoff, a very coarse level, and a coarse-only fine-tune.

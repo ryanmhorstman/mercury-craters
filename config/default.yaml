@@ -77,6 +77,10 @@ regions:
       - [0, 60, -60, -30]      # low share of 5-10 km craters
       - [90, 270, -60, -30]
       - [240, 270, 30, 60]
+  polar:                       # cap tiles (|lat| >= max_abs_lat) a model may train on (detectors.cnn.polar_training)
+    test:                      # held out from that training, with a buffer_deg arc buffer
+      P1: [120, 180, 65, 85]   # north cap
+      P2: [300, 360, -85, -65] # south cap
 
 tiling:
   # Each tile is reprojected to a stereographic projection centred on the tile,
@@ -122,6 +126,8 @@ detectors:
     # The first model (model_name cnn, use_registered_labels false) trained on the original catalog positions.
     model_name: cnn_reg_f2        # files: data/models/<name>_best.pt, data/detections/<name>.parquet
     use_registered_labels: true   # train and select on catalog_registered_labels
+    polar_training: false         # true: also train on polar-cap tiles in regions.polar (tried as cnn_polar; docs/phase3-notes.md 3.3f)
+    polar_label_min_km: 10        # on those tiles, catalog craters below this are "ignore" (thin polar catalog)
     selection_beta: 2             # checkpoint + cutoff maximise V1 F-beta; 1 = F1 (cnn and cnn_reg were chosen that way)
     crop_px: 512
     batch_size: 12
