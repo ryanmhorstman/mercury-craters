@@ -2,6 +2,7 @@
 
     python -m craters.demcheck      # once: fit the DEM bowl check (outputs/selftrain/dem_check.json)
     python -m craters.selftrain     # rounds until V1 stops improving or selftrain.max_rounds
+    python -m craters.selftrain --control   # the same fine-tune without pseudo-labels, for comparison
 
 Each round starts from the best model so far and its calibrated global run:
 
@@ -113,14 +114,37 @@ def train_round(cfg, base, name, labels_path):
     cfg = copy.deepcopy(cfg)
     cnn = cfg["detectors"]["cnn"]
     cnn.update(model_name=name, extra_labels=str(labels_path), level_models={},
-               init_from=str(cfg["paths"]["models"] / f"{base}_best.pt"), epochs=p["epochs"], lr=p["lr"])
+               init_from=str(cfg["paths"]["models"] / f"{base}_best.pt"), epochs=p["epochs"], lr=p["lr"],
+               eval_every=p["eval_every"])
     train(cfg)
     run_global(cfg, timing_path=cfg["paths"]["selftrain"] / f"run_timing_{name}.json")
     calibrate(cfg, record_path=cfg["paths"]["selftrain"] / f"calibration_{name}.json", quiet=True)
 
 
+def control(cfg):
+    """One fine-tune of the starting model with the round recipe but no pseudo-labels.
+
+    Separates what the pseudo-labels do from what fine-tuning alone does to V1."""
+    catalog = pd.read_parquet(cfg["paths"]["catalog_registered_labels"])
+    start = run_name(cfg["detectors"]["cnn"])
+    name = f"{cfg['detectors']['cnn']['model_name']}_control"
+    labels_path = cfg["paths"]["catalog"].parent / "selftrain" / f"pseudo_{name}.parquet"
+    labels_path.parent.mkdir(parents=True, exist_ok=True)
+    pd.DataFrame({"lat": [], "lon": [], "diameter_km": [], "ignore": pd.Series([], dtype=bool)}).to_parquet(labels_path, index=False)
+    train_round(cfg, start, name, labels_path)
+    result = {"model": name, **f1_scores(cfg, calibrated_run(cfg, name), catalog)}
+    (cfg["paths"]["selftrain"] / "control.json").write_text(json.dumps(result, indent=2))
+    print(f"control ({name}): V1 F1 {result['v1_f1']}, T1-T3 F1 {result['test_f1']}", flush=True)
+
+
 def main():
+    import argparse
+
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--control", action="store_true", help="fine-tune without pseudo-labels, then stop")
     cfg = load_config()
+    if parser.parse_args().control:
+        return control(cfg)
     p = cfg["selftrain"]
     out_dir = cfg["paths"]["selftrain"]
     labels_dir = cfg["paths"]["catalog"].parent / "selftrain"

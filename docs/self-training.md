@@ -73,18 +73,37 @@ Each round runs these steps, starting from the best model so far:
 The catalog is never edited, and V1, T1-T3 and their buffers never get
 pseudo-labels. T1-T3 are reported, never used to decide.
 
-## First run: rejected
+## Results: both rounds rejected, fine-tuning is the problem
 
-| round | model | new craters / ignored | V1 F1 | T1-T3 F1 | kept |
+All F1 values are for the calibrated global run, scored against the catalog.
+
+| run | recipe | new craters / ignored | V1 F1 | T1-T3 F1 | kept |
 |---|---|---|---|---|---|
-| 0 | cnn_reg_f2 | - | 0.678 | 0.675 | - |
-| 1 | cnn_reg_f2_st1 | 281 / 38 | 0.635 | 0.642 | no |
+| cnn_reg_f2 (start) | - | - | 0.678 | 0.675 | - |
+| round 1, first try | 16 epochs, lr 2e-4, V1 every 4 | 281 / 38 | 0.635 | 0.642 | no |
+| control | 12 epochs, lr 5e-5, V1 every 2, no pseudo-labels | 0 / 0 | 0.587 | 0.583 | (reference) |
+| round 1, retry | same as control | 281 / 38 | 0.595 | 0.589 | no |
 
-The gate did its job, and `cnn_reg_f2` stays the published model. The drop
-probably comes from the fine-tune itself rather than the labels. 281 positives
-are about 2% of the training labels. The fine-tune restarted the learning rate
-at 2e-4, and V1 F-beta during it peaked at 0.697, against 0.735 for the model it
-started from. V1 F-beta also swings by +-0.1 between evaluations in the original
-training (`data/models/cnn_reg_f2_history.csv`). A gentler fine-tune (lower
-learning rate, more frequent checkpoints), with a control run without pseudo-labels, would
-separate the two effects.
+The gate did its job, and `cnn_reg_f2` stays the published model.
+
+The control fine-tune has no pseudo-labels, and it does worse than the start
+model: V1 F2 falls from 0.735 to 0.64 at its very first check, after 2 epochs.
+So fine-tuning from `cnn_reg_f2` loses accuracy whatever the labels.
+With the same recipe, the pseudo-labels then do slightly better than the
+control (V1 +0.009, T1-T3 +0.006), but that is within the noise.
+
+Most likely, `cnn_reg_f2` is a lucky checkpoint of a noisy training run. Its V1
+F-beta went 0.66, 0.53, **0.735**, 0.59 at epochs 8-20
+(`data/models/cnn_reg_f2_history.csv`), and T1-T3 confirms it is genuinely good,
+not just good on V1. Any further training moves away from that point.
+
+To test the pseudo-labels properly, the training itself needs to be steadier:
+average the weights over time (EMA/SWA), then compare full retrains with and
+without pseudo-labels over several seeds. That costs hours of GPU time per
+comparison, and is left for later.
+
+The confirmed craters stand on their own: `outputs/selftrain/new_craters.csv`
+is a supplement to the catalog, confirmed by evidence the thesis didn't use,
+whether or not they ever help train the CNN. The rejected models and runs are
+kept, outside git, in `data/models/selftrain_st1_rejected/` and
+`data/models/selftrain_retry_rejected/`.
