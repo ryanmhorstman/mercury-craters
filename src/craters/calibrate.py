@@ -94,8 +94,9 @@ def apply_size_cutoffs(detections, cutoffs):
     return detections[detections["score"].to_numpy() >= needed].reset_index(drop=True)
 
 
-def main():
-    cfg = load_config()
+def calibrate(cfg, record_path=None, quiet=False):
+    """Calibrate the global run of detectors.cnn; returns the calibration record
+    (written to outputs/global/calibration.json unless record_path is given)."""
     params = cfg["detectors"]["cnn"]
     name = run_name(params)
     detections = pd.read_parquet(cfg["paths"]["detections"] / f"global_{name}.parquet")
@@ -111,12 +112,20 @@ def main():
     calibrated.to_parquet(out, index=False)
     record = {"run": name, "diameter_correction": correction, "size_cutoffs": cutoffs,
               "detections_raw": len(detections), "detections_calibrated": len(calibrated)}
-    cfg["paths"]["global"].mkdir(parents=True, exist_ok=True)
-    (cfg["paths"]["global"] / "calibration.json").write_text(json.dumps(record, indent=2))
+    record_path = record_path or cfg["paths"]["global"] / "calibration.json"
+    record_path.parent.mkdir(parents=True, exist_ok=True)
+    record_path.write_text(json.dumps(record, indent=2))
+    if quiet:
+        return record
     for level, c in correction.items():
         print(f"{level}: diameter x " + ", ".join(f"{k:g} km {np.exp(r):.3f}" for k, r in zip(c["centre_km"], c["log_ratio"])))
     print(pd.DataFrame(cutoffs).to_string(index=False))
     print(f"{len(detections):,} -> {len(calibrated):,} detections; wrote {out}")
+    return record
+
+
+def main():
+    calibrate(load_config())
 
 
 if __name__ == "__main__":

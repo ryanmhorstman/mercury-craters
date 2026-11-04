@@ -132,8 +132,10 @@ def global_tiles(cfg):
     return tiles
 
 
-def run_global(cfg):
-    """Run the chosen CNN over every tile on the planet; same levels, merging and cutoff as T1-T3."""
+def run_global(cfg, timing_path=None):
+    """Run the chosen CNN over every tile on the planet; same levels, merging and cutoff as T1-T3.
+
+    The run's timing goes to outputs/global/run_timing.json unless timing_path is given."""
     from .detectors.cnn import build_detector, overlap_rule
 
     params = cfg["detectors"]["cnn"]
@@ -157,8 +159,9 @@ def run_global(cfg):
     detections[columns].to_parquet(out, index=False)
     timing = {"model": run_name(params), "tiles": len(tiles), "detections": len(detections),
               "render_s": round(render_s), "detect_and_merge_s": round(detect_s)}
-    cfg["paths"]["global"].mkdir(parents=True, exist_ok=True)
-    (cfg["paths"]["global"] / "run_timing.json").write_text(json.dumps(timing, indent=2))
+    timing_path = timing_path or cfg["paths"]["global"] / "run_timing.json"
+    timing_path.parent.mkdir(parents=True, exist_ok=True)
+    timing_path.write_text(json.dumps(timing, indent=2))
     print(f"wrote {len(detections)} detections to {out}; {timing}", flush=True)
 
 

@@ -23,6 +23,7 @@ workbook is not public; the pipeline expects a copy at `data/raw/Mercury Crater 
 | 4. Adjudication | `conda run -n mercury-craters python -m craters.phase4 review` / `report` | [docs/phase4-notes.md](docs/phase4-notes.md) |
 | Global run | `conda run -n mercury-craters python -m craters.phase3 global`, then `python -m craters.compare_global` | [docs/global-run.md](docs/global-run.md) |
 | Calibrated run | `python -m craters.calibrate`, then `python -m craters.compare_global --calibrated` | [docs/global-run.md](docs/global-run.md) |
+| Self-training | `python -m craters.demcheck`, then `python -m craters.selftrain` | [docs/self-training.md](docs/self-training.md) |
 
 Tests: `conda run -n mercury-craters python -m pytest`
 

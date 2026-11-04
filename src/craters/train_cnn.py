@@ -8,6 +8,9 @@ Augmentation: random scale, the 8 flips/rotations, brightness/contrast/gamma.
 
 Labels are the original catalog, or (detectors.cnn.use_registered_labels) the
 north-south registered copy built by `python -m craters.phase4 register-labels`.
+Self-training (craters.selftrain) adds extra_labels: DEM-confirmed craters
+missing from the catalog, and confident detections to "ignore". V1 checkpoint
+selection always scores against the catalog alone.
 
 Test regions T1-T3 are never read here.
 """
@@ -51,14 +54,15 @@ class TileViews(Dataset):
             tile = tile_from_row(row)
             craters = catalog_in_tile(tile, catalog, margin_px=64)
             circles = craters[["col", "row", "radius_px"]].to_numpy(np.float32)
-            self.tiles[tile.level].append((tile, circles, craters["diameter_km"].to_numpy()))
+            ignore = craters["ignore"].to_numpy(bool) if "ignore" in craters else np.zeros(len(craters), bool)
+            self.tiles[tile.level].append((tile, circles, craters["diameter_km"].to_numpy(), ignore))
 
         # Optional oversampling of tiles holding big craters (coarse fine-tune):
         # a tile's weight is 1 + big_weight x its catalog craters >= big_km.
         self.weights = {}
         if params.get("big_weight", 0):
             for level, entries in self.tiles.items():
-                w = np.array([1.0 + params["big_weight"] * (d >= params["big_km"]).sum() for _, _, d in entries])
+                w = np.array([1.0 + params["big_weight"] * (d >= params["big_km"]).sum() for _, _, d, _ in entries])
                 self.weights[level] = w / w.sum() if len(w) else w
 
     def pick_tile(self, level, rng):
@@ -71,7 +75,7 @@ class TileViews(Dataset):
         rng = np.random.default_rng((self.seed, i))
         p = self.p
         level = "coarse" if rng.random() < p["coarse_fraction"] else "fine"
-        tile, circles, diameter_km = self.pick_tile(level, rng)
+        tile, circles, diameter_km, ignore = self.pick_tile(level, rng)
         image = load_tile_image(tile, self.cfg)
         lo, hi = p["label_km"][level]
         crop = p["crop_px"]
@@ -94,7 +98,7 @@ class TileViews(Dataset):
             # The polar catalog is thin, below ~10 km especially: train on its craters >= 10 km
             # as positives, but never treat the unlabelled ground there as "no crater".
             lo = max(lo, p.get("polar_label_min_km", lo))
-        label = (diameter_km >= lo) & (diameter_km <= hi)
+        label = (diameter_km >= lo) & (diameter_km <= hi) & ~ignore
         view, c = dihedral(view, c, rng.integers(8), crop)
         view = photometric(view, rng)
         targets = make_targets(c[label], c[~label], crop, ignore_background=polar)
@@ -168,7 +172,12 @@ def train(cfg):
     if params.get("polar_training"):
         train_tiles = pd.concat([train_tiles, polar_train_tiles(cfg)], ignore_index=True)
         print(f"training tiles incl. polar caps: {train_tiles['level'].value_counts().to_dict()}", flush=True)
-    dataset = TileViews(train_tiles, catalog, cfg, params, cfg["seed"])
+    labels = catalog
+    if params.get("extra_labels"):
+        extra = pd.read_parquet(params["extra_labels"])
+        labels = pd.concat([catalog.assign(ignore=False), extra[["lat", "lon", "diameter_km", "ignore"]]], ignore_index=True)
+        print(f"extra labels: {int((~extra['ignore']).sum())} craters, {int(extra['ignore'].sum())} ignored", flush=True)
+    dataset = TileViews(train_tiles, labels, cfg, params, cfg["seed"])
     sampler = EpochSampler(params["samples_per_epoch"])
     loader = DataLoader(dataset, batch_size=params["batch_size"], sampler=sampler, num_workers=params["workers"],
                         persistent_workers=params["workers"] > 0, drop_last=True)
@@ -177,6 +186,8 @@ def train(cfg):
     val_images = preload(tiles, list(cfg["regions"]["validation"].values()), cfg)
 
     model = CraterNet(pretrained=True).to(device)
+    if params.get("init_from"):     # continue from an earlier model's weights (self-training rounds)
+        model.load_state_dict(torch.load(params["init_from"], map_location=device, weights_only=True)["model"])
     optimizer = torch.optim.AdamW(model.parameters(), lr=params["lr"], weight_decay=params["weight_decay"])
     steps = params["epochs"] * len(loader)
     scheduler = torch.optim.lr_scheduler.OneCycleLR(optimizer, max_lr=params["lr"], total_steps=steps, pct_start=0.1)

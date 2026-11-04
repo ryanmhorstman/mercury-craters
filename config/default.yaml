@@ -29,6 +29,7 @@ paths:
   phase4: outputs/phase4
   global: outputs/global
   video: outputs/video                 # python -m craters.video
+  selftrain: outputs/selftrain         # python -m craters.demcheck, python -m craters.selftrain
 
 catalog:
   # Sheets in priority order. When two entries describe the same crater, the
@@ -170,6 +171,21 @@ calibration:
   cutoff_bands_km: [5, 7, 10, 14, 20, 40, 2000]
   min_v1_craters: 50            # a band with fewer V1 catalog craters keeps the run's own cutoff
   score_cutoffs: [0.15, 0.2, 0.25, 0.3, 0.35, 0.4, 0.45, 0.5, 0.6, 0.7]
+
+selftrain:
+  dem_check:                    # `python -m craters.demcheck`: is there a bowl in the DEM? (src/craters/demcheck.py)
+    bands_km: [20, 30, 40, 60, 100, 400]   # one rule per band; below 20 km the DEM can't tell craters from decoys
+    azimuths: 36
+    rim_min_frac: 0.01          # an azimuth "has rim" when it stands >= this x D above the floor
+    depth_ratio_grid: [0.0, 0.005, 0.01, 0.015, 0.02, 0.03, 0.04, 0.05, 0.06, 0.08]
+    rim_frac_grid: [0.5, 0.6, 0.7, 0.75, 0.8, 0.85, 0.9, 0.95, 1.0]
+    max_decoy_pass: 0.01        # the rule may pass at most 1% of decoy circles (train area)
+  # `python -m craters.selftrain` (src/craters/selftrain.py)
+  ignore_min_score: 0.5         # unconfirmed non-catalog detections this confident become "ignore", not "no crater"
+  max_rounds: 3
+  epochs: 16                    # each round fine-tunes the previous best model
+  lr: 0.0002
+  gate_tolerance: 0.0           # a round is kept only if V1 F1 >= best so far - this
 
 registration:
   # The catalog sits up to ~7 km north of the same craters on the USGS basemap,
