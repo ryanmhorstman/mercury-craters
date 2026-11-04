@@ -28,6 +28,7 @@ paths:
   verdicts: adjudication/verdicts.csv      # tracked in git: hand-made data
   phase4: outputs/phase4
   global: outputs/global
+  video: outputs/video                 # python -m craters.video
 
 catalog:
   # Sheets in priority order. When two entries describe the same crater, the
