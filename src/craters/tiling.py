@@ -66,22 +66,58 @@ def make_tiles(level_name, level, lat_limit, regions, radius_m=MERCURY_RADIUS_M)
     East-west spacing in a row is set at the row's equatorward edge, where a
     degree of longitude is widest, so cells never exceed the step in width.
     """
-    step_km = (level["size_px"] - level["overlap_px"]) * level["pixel_m"] / 1000.0
-    step_deg = np.degrees(step_km * 1000.0 / radius_m)
+    step_deg = step_degrees(level, radius_m)
+    n_rows = int(np.ceil(2 * lat_limit / step_deg))
+    centres = [-lat_limit + (r + 0.5) * step_deg for r in range(n_rows)]
+    tiles = tile_rows(level_name, level, centres, step_deg, "r")
+    return with_splits(tiles, regions)
+
+
+def make_cap_tiles(level_name, level, lat_limit, regions, radius_m=MERCURY_RADIUS_M):
+    """Cover the two polar caps that make_tiles leaves out, for a global run.
+
+    The rows of make_tiles reach the cell edges -lat_limit and
+    -lat_limit + n_rows * step (a little past +lat_limit). Each cap fills the
+    gap from that edge to its pole with rows spread evenly, so no row centre
+    lands past the pole; the spacing is never wider than the level's step.
+    The top row's cells meet at the pole, where a handful of tiles overlap.
+    """
+    step_deg = step_degrees(level, radius_m)
     n_rows = int(np.ceil(2 * lat_limit / step_deg))
     tiles = []
-    for r in range(n_rows):
-        lat0 = -lat_limit + (r + 0.5) * step_deg
+    for prefix, edge, pole in (("n", -lat_limit + n_rows * step_deg, 90.0), ("s", -lat_limit, -90.0)):
+        n_cap = int(np.ceil(abs(pole - edge) / step_deg))
+        cap_step = abs(pole - edge) / n_cap
+        sign = np.sign(pole)
+        centres = [edge + sign * (r + 0.5) * cap_step for r in range(n_cap)]
+        tiles += tile_rows(level_name, level, centres, cap_step, prefix)
+    return with_splits(tiles, regions)
+
+
+def step_degrees(level, radius_m=MERCURY_RADIUS_M):
+    """Spacing of tile centres, in degrees of arc: tile size minus overlap."""
+    step_km = (level["size_px"] - level["overlap_px"]) * level["pixel_m"] / 1000.0
+    return np.degrees(step_km * 1000.0 / radius_m)
+
+
+def tile_rows(level_name, level, centres, step_deg, prefix):
+    """One row of tiles round the planet at each centre latitude."""
+    tiles = []
+    for r, lat0 in enumerate(centres):
         equatorward = max(abs(lat0) - step_deg / 2, 0.0)
         lon_step = step_deg / np.cos(np.radians(equatorward))
         n_cols = int(np.ceil(360.0 / lon_step))
         lon_step = 360.0 / n_cols                       # spread evenly round the planet
         for c in range(n_cols):
             tiles.append(Tile(
-                tile_id=f"{level_name}_r{r:03d}_c{c:04d}", level=level_name,
+                tile_id=f"{level_name}_{prefix}{r:03d}_c{c:04d}", level=level_name,
                 lat0=round(float(lat0), 6), lon0=round(float((c + 0.5) * lon_step), 6),
                 size_px=level["size_px"], pixel_m=level["pixel_m"],
             ))
+    return tiles
+
+
+def with_splits(tiles, regions):
     splits = assign_split([t.lat0 for t in tiles], [t.lon0 for t in tiles], regions)
     return [Tile(**{**asdict(t), "split": s}) for t, s in zip(tiles, splits)]
 

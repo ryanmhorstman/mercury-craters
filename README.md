@@ -21,6 +21,7 @@ workbook is not public; the pipeline expects a copy at `data/raw/Mercury Crater 
 | 2. Matching + metrics | `conda run -n mercury-craters python -m craters.phase2` | [docs/phase2-notes.md](docs/phase2-notes.md) |
 | 3. Detectors | `conda run -n mercury-craters python -m craters.phase3 hough` / `cnn` | [docs/phase3-notes.md](docs/phase3-notes.md) |
 | 4. Adjudication | `conda run -n mercury-craters python -m craters.phase4 review` / `report` | [docs/phase4-notes.md](docs/phase4-notes.md) |
+| Global run | `conda run -n mercury-craters python -m craters.phase3 global`, then `python -m craters.compare_global` | [docs/global-run.md](docs/global-run.md) |
 
 Tests: `conda run -n mercury-craters python -m pytest`
 

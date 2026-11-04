@@ -18,6 +18,7 @@ paths:
   catalog_registered_labels: data/processed/catalog_registered_labels.parquet   # same, shift field also covering train + V1 (CNN labels only)
   catalog_duplicates: data/processed/catalog_duplicates.csv
   tiles: data/processed/tiles.parquet
+  tiles_global: data/processed/tiles_global.parquet   # tiles + polar caps, for the global run
   figures: outputs/phase1
   detections: data/detections          # one <detector>.parquet per detector: lat, lon, diameter_km, score
   detections_labels: data/detections_labels   # the same detectors run over train + V1, for registering CNN labels only
@@ -26,6 +27,7 @@ paths:
   review_items: data/processed/review_items.csv
   verdicts: adjudication/verdicts.csv      # tracked in git: hand-made data
   phase4: outputs/phase4
+  global: outputs/global
 
 catalog:
   # Sheets in priority order. When two entries describe the same crater, the
@@ -93,6 +95,7 @@ tiling:
       overlap_px: 512          # 340.6 km
       detect_km: [30, 400]
   lat_limit: 60                # tiles are generated within +/- this latitude
+                               # (the global run adds polar-cap rows beyond it; see make_cap_tiles)
 
 detectors:
   hough:
@@ -151,3 +154,9 @@ viewer:
   alignment_craters:           # [lon_E, lat] of named craters, to check basemap/DEM/catalog alignment
     Rachmaninoff: [57.08, 27.77]
     Praxiteles: [299.77, 27.20]
+
+global:
+  # Whole-planet run of detectors.cnn.model_name and its comparison with the full catalog.
+  lat_bands: [[-90, -60], [-60, -30], [-30, 0], [0, 30], [30, 60], [60, 90]]
+  density_cell_deg: 10         # lat/lon cells for the density maps
+  min_cell_count: 5            # ratio map leaves cells with fewer catalog or detector craters blank

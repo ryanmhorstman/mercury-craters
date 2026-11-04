@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from craters.tiling import Tile, make_tiles, render_tile
+from craters.tiling import Tile, make_cap_tiles, make_tiles, render_tile
 
 
 def disk_shape(image):
@@ -66,3 +66,21 @@ def test_every_crater_up_to_the_overlap_fits_in_some_tile(regions):
         r = tile.km_to_px(diameter_km / 2)
         fits |= (col - r >= 0) & (col + r <= tile.size_px) & (row - r >= 0) & (row + r <= tile.size_px)
     assert fits.all(), f"{(~fits).sum()} craters not wholly inside any tile"
+
+
+def test_polar_caps_close_the_gap_to_each_pole():
+    level = {"size_px": 1024, "pixel_m": 166.31, "overlap_px": 256}
+    regions = {"test": {}, "validation": {}, "train": {"max_abs_lat": 60, "buffer_deg": 5, "exclude": []}}
+    main = make_tiles("fine", level, 60, regions)
+    caps = make_cap_tiles("fine", level, 60, regions)
+    lats = sorted({t.lat0 for t in main + caps})
+    step = max(np.diff(lats))
+    assert step <= np.degrees(768 * 166.31 / 2439400.0) + 1e-6       # no row gap wider than the main grid's
+    assert lats[0] < -88 and lats[-1] > 88 and all(abs(lat) < 90 for lat in lats)
+    assert len({t.tile_id for t in main + caps}) == len(main) + len(caps)
+    for pole in (90.0, -90.0):                                           # a pole lies well inside some tile
+        margins = []
+        for t in caps:
+            col, row = t.lonlat_to_px([0.0], [pole])
+            margins.append(min(col[0], row[0], t.size_px - col[0], t.size_px - row[0]))
+        assert max(margins) >= level["overlap_px"] / 2
