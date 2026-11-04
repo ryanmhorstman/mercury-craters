@@ -148,7 +148,10 @@ separate:
      include. On this reading, below ~10 km the two SFDs measure different things, and the
      agreement at 11–23 km is the like-for-like comparison.
 
-   Neither reading is confirmed. The author of the catalog can say which applies.
+   **The author's recollection (2026-11-03) supports the second reading:** the thesis was strict,
+   counting only craters with clearly defined rims, which are hard to see for small degraded
+   craters. The T1–T3 review asked a looser question ("is this a real crater of about this
+   size?"), so its 73% "real" rate measures something broader than the thesis criterion.
 2. **Precision outside T1–T3 is unreviewed.** In T1–T3 the review found that 73% of reviewed
    5–10 km detections were real. That rate may not hold at the poles or in the excluded stripes,
    where lighting and mosaic quality differ.
