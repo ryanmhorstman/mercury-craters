@@ -160,3 +160,17 @@ global:
   lat_bands: [[-90, -60], [-60, -30], [-30, 0], [0, 30], [30, 60], [60, 90]]
   density_cell_deg: 10         # lat/lon cells for the density maps
   min_cell_count: 5            # ratio map leaves cells with fewer catalog or detector craters blank
+
+mapview:
+  # Local zoomable map of the global run: python -m craters.mapview
+  port: 8766                   # the review app uses 8765
+  tile_px: 256
+  max_zoom: 10                 # native resolution is reached near zoom 7.5; above that tiles are upsampled
+  stretch_percentiles: [0.5, 99.5]   # basemap contrast, from the coarsest overview at startup
+  min_radius_px: 1.5           # craters smaller than this on screen are counted but not drawn
+  score_slider: [0.15, 0.8]    # range of the CNN score cutoff slider (detections start at the run's cutoff)
+  verdict_match_km: 0.5        # a review verdict applies to a global detection within this distance
+  colors:                      # Okabe-Ito, chosen to stay distinct with colour-blindness and on a grey basemap
+    matched: "#f0e442"
+    catalog_only: "#56b4e9"
+    cnn_only: "#d55e00"

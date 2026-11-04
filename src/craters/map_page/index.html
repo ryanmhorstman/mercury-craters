@@ -1,0 +1,259 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mercury Crater Map</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+  :root { --bg: #111315; --panel: #1a1d20; --line: #2a2e33; --text: #e8e6e3; --muted: #9aa0a6; --focus: #8ecae6; }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; background: var(--bg); color: var(--text);
+               font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  #map { position: absolute; inset: 0; background: #000; }
+  .panel { position: absolute; top: 12px; right: 12px; z-index: 1000; width: 290px; max-height: calc(100% - 24px);
+           overflow: auto; background: color-mix(in srgb, var(--panel) 94%, transparent); border: 1px solid var(--line);
+           border-radius: 8px; padding: 12px 14px; }
+  @media (max-width: 600px) { .panel { left: 12px; width: auto; max-height: 45%; } }
+  h1 { font-size: 15px; margin: 0 0 2px; }
+  .sub { color: var(--muted); font-size: 12px; margin-bottom: 10px; }
+  .row { display: flex; align-items: center; gap: 8px; margin: 4px 0; }
+  .row label { flex: 1; display: flex; align-items: center; gap: 8px; cursor: pointer; }
+  .swatch { width: 14px; height: 14px; border-radius: 50%; border: 2px solid; flex: none; }
+  .swatch.dashed { border-style: dashed; }
+  .count { font-variant-numeric: tabular-nums; color: var(--muted); min-width: 5ch; text-align: right; }
+  .field { margin: 12px 0 4px; }
+  .field .head { display: flex; justify-content: space-between; font-size: 13px; }
+  .field .head span:last-child { font-variant-numeric: tabular-nums; color: var(--muted); }
+  input[type=range] { width: 100%; }
+  select { font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--line); border-radius: 4px; padding: 3px 6px; }
+  .note { color: var(--muted); font-size: 12px; margin-top: 8px; }
+  .cursor { position: absolute; left: 12px; bottom: 12px; z-index: 1000; background: var(--panel); border: 1px solid var(--line);
+            border-radius: 6px; padding: 3px 8px; font: 12px ui-monospace, monospace; color: var(--muted); }
+  .leaflet-popup-content-wrapper, .leaflet-popup-tip { background: var(--panel); color: var(--text); }
+  .leaflet-popup-content { margin: 10px 12px; font-size: 13px; }
+  .leaflet-popup-content table { border-collapse: collapse; }
+  .leaflet-popup-content td { padding: 1px 8px 1px 0; vertical-align: top; }
+  .leaflet-popup-content td:first-child { color: var(--muted); }
+  .region-label { background: transparent; border: none; box-shadow: none; color: #fff; font-weight: 600; text-shadow: 0 0 3px #000; }
+  .region-label::before { display: none; }
+  .loading { position: absolute; inset: 0; display: grid; place-items: center; z-index: 2000; color: var(--muted); pointer-events: none; }
+</style>
+</head>
+<body>
+<div id="map"></div>
+<div class="loading" id="loading">Loading craters…</div>
+<div class="cursor" id="cursor">–</div>
+<aside class="panel">
+  <h1>Mercury craters</h1>
+  <div class="sub" id="sub">thesis catalog vs CNN</div>
+  <div id="categories"></div>
+  <div class="note">Counts: crater centres in view, after filters. Matched pairs count once; the dashed circle is the CNN's.</div>
+
+  <div class="field">
+    <div class="head"><span>CNN score cutoff</span><span id="score-value"></span></div>
+    <input type="range" id="score" step="0.01">
+  </div>
+  <div class="field">
+    <div class="head"><label for="min-d">Minimum diameter</label>
+      <select id="min-d"><option>5</option><option>7</option><option>10</option><option>15</option><option>20</option>
+        <option>30</option><option>50</option><option>100</option></select></div>
+  </div>
+  <div class="row"><label><input type="checkbox" id="regions" checked> Region outlines (T1–T3, V1, train)</label></div>
+  <div class="row"><label><input type="checkbox" id="verdicts" checked> Review verdicts (✓ real, ✗ not real)</label></div>
+  <div class="field">
+    <div class="head"><label for="jump">Go to</label><select id="jump"><option value="">whole planet</option></select></div>
+  </div>
+  <div class="note">Raising the cutoff drops weaker detections: their catalog partners become “catalog only”.
+    Matching is not re-run per cutoff. Click a circle for details.</div>
+</aside>
+
+<script>
+"use strict";
+const CATEGORIES = [
+  { key: "matched", label: "Matched" },
+  { key: "catalog_only", label: "Catalog only" },
+  { key: "cnn_only", label: "CNN only" },
+];
+const MARKS = { real: "✓", not_real: "✗", unsure: "?" };
+
+async function main() {
+  const [cfg, data] = await Promise.all([fetch("/api/config").then(r => r.json()), fetch("/api/craters").then(r => r.json())]);
+  document.getElementById("loading").remove();
+  document.getElementById("sub").textContent =
+    `thesis catalog vs CNN (${data.model}), D ≥ ${data.min_diameter_km} km`;
+
+  // ---------------------------------------------------------- map: whole planet = 2 x 1 tiles at zoom 0
+  const pxPerDeg0 = 2 * cfg.tile_px / 360;
+  const crs = L.extend({}, L.CRS.Simple, { transformation: new L.Transformation(pxPerDeg0, 0, -pxPerDeg0, 90 * pxPerDeg0) });
+  const world = L.latLngBounds([[-90, 0], [90, 360]]);
+  const panLimit = L.latLngBounds([[-100, -360], [100, 720]]);   // one extra copy of the planet each side
+  const map = L.map("map", { crs, minZoom: 0, maxZoom: cfg.max_zoom, maxBounds: panLimit, zoomSnap: 0.5, attributionControl: true });
+  map.fitBounds(world);
+  L.tileLayer("/tile/{z}/{x}/{y}.png", { tileSize: cfg.tile_px, maxNativeZoom: cfg.native_zoom, bounds: panLimit,
+    attribution: "MESSENGER MDIS BDR mosaic (USGS); Horstman (2016) catalog" }).addTo(map);
+
+  // ---------------------------------------------------------- crater geometry, in degrees
+  const kmPerDeg = data.radius_km * Math.PI / 180;
+  function prepare(set) {
+    const n = set.d.length, rLat = new Float32Array(n), rLon = new Float32Array(n);
+    for (let i = 0; i < n; i++) {
+      rLat[i] = set.d[i] / 2 / kmPerDeg;
+      rLon[i] = rLat[i] / Math.max(Math.cos(set.lat[i] * Math.PI / 180), 0.01);   // equirectangular: wider east-west
+    }
+    return Object.assign(set, { n, rLat, rLon, category: new Array(n) });
+  }
+  const cat = prepare(data.catalog), cnn = prepare(data.cnn);
+
+  // ---------------------------------------------------------- filters -> category per crater ("" = hidden)
+  const show = { matched: true, catalog_only: true, cnn_only: true };
+  const state = { score: cfg.score_slider[0], minD: 5, verdicts: true };
+  function categorise() {
+    for (let j = 0; j < cnn.n; j++) {
+      const kept = cnn.score[j] >= state.score;
+      cnn.category[j] = !kept ? "" : cnn.partner[j] >= 0 ? "matched" : "cnn_only";
+    }
+    for (let i = 0; i < cat.n; i++) {
+      const p = cat.partner[i];
+      cat.category[i] = p >= 0 && cnn.category[p] === "matched" ? "matched" : "catalog_only";
+    }
+  }
+  const visible = (set, i) => {
+    const c = set.category[i];
+    return c !== "" && show[c] && set.d[i] >= state.minD;
+  };
+
+  // ---------------------------------------------------------- canvas tiles of ellipses
+  const CraterLayer = L.GridLayer.extend({
+    createTile(coords) {
+      const size = this.getTileSize(), tile = L.DomUtil.create("canvas");
+      tile.width = size.x; tile.height = size.y;
+      const span = 180 / 2 ** coords.z, ppd = size.x / span;
+      const lon0 = coords.x * span, latTop = 90 - coords.y * span;
+      const ctx = tile.getContext("2d");
+      ctx.lineWidth = 1.5;
+      const draw = (set, i, dashed) => {
+        const ry = set.rLat[i] * ppd;
+        if (ry < cfg.min_radius_px) return;
+        const lat = set.lat[i];
+        if (lat - set.rLat[i] > latTop || lat + set.rLat[i] < latTop - span) return;
+        for (const shift of [-720, -360, 0, 360, 720]) {      // the map repeats east-west
+          const lon = set.lon[i] + shift;
+          if (lon + set.rLon[i] < lon0 || lon - set.rLon[i] > lon0 + span) continue;
+          const cx = (lon - lon0) * ppd, cy = (latTop - lat) * ppd;
+          ctx.strokeStyle = cfg.colors[set.category[i]];
+          ctx.setLineDash(dashed ? [5, 4] : []);
+          ctx.beginPath();
+          ctx.ellipse(cx, cy, set.rLon[i] * ppd, ry, 0, 0, 2 * Math.PI);
+          ctx.stroke();
+          const mark = state.verdicts && MARKS[set.verdict[i]];
+          if (mark && ry > 6) {
+            ctx.font = `bold ${Math.min(18, Math.max(11, ry / 2))}px system-ui`;
+            ctx.textAlign = "center"; ctx.textBaseline = "middle";
+            ctx.lineWidth = 3; ctx.strokeStyle = "#000"; ctx.setLineDash([]);
+            ctx.strokeText(mark, cx, cy);
+            ctx.fillStyle = "#fff"; ctx.fillText(mark, cx, cy);
+            ctx.lineWidth = 1.5;
+          }
+        }
+      };
+      ctx.globalAlpha = 0.9;
+      for (let i = 0; i < cat.n; i++) if (visible(cat, i)) draw(cat, i, false);
+      for (let j = 0; j < cnn.n; j++) if (visible(cnn, j)) draw(cnn, j, cnn.category[j] === "matched");
+      return tile;
+    },
+  });
+  const craters = new CraterLayer({ tileSize: cfg.tile_px, bounds: panLimit, updateWhenZooming: false }).addTo(map);
+
+  // ---------------------------------------------------------- region outlines
+  const regions = L.layerGroup().addTo(map);
+  const box = ([lon0, lon1, lat0, lat1]) => [[lat0, lon0], [lat1, lon1]];
+  for (const [name, b] of Object.entries(cfg.regions)) {
+    L.rectangle(box(b), { color: "#fff", weight: 2, fill: false, interactive: false }).addTo(regions)
+      .bindTooltip(name, { permanent: true, direction: "center", className: "region-label" });
+  }
+  for (const b of cfg.train_exclude) {
+    const clipped = [b[0], b[1], Math.max(b[2], -cfg.train_max_abs_lat), Math.min(b[3], cfg.train_max_abs_lat)];
+    L.rectangle(box(clipped), { color: "#bbb", weight: 1, dashArray: "2 4", fill: false, interactive: false }).addTo(regions);
+  }
+  for (const lat of [-cfg.train_max_abs_lat, cfg.train_max_abs_lat]) {
+    L.polyline([[lat, 0], [lat, 360]], { color: "#bbb", weight: 1, dashArray: "6 6", interactive: false }).addTo(regions);
+  }
+  L.marker([cfg.train_max_abs_lat, 2], { opacity: 0, interactive: false }).addTo(regions)
+    .bindTooltip("train: |lat| < 60°, outside dotted boxes and test/V1 buffers", { permanent: true, direction: "right", className: "region-label" });
+
+  // ---------------------------------------------------------- controls
+  const categoriesEl = document.getElementById("categories"), counts = {};
+  for (const { key, label } of CATEGORIES) {
+    const row = document.createElement("div");
+    row.className = "row";
+    row.innerHTML = `<label><input type="checkbox" checked data-key="${key}">
+      <span class="swatch" style="border-color:${cfg.colors[key]}"></span>${label}</label><span class="count"></span>`;
+    counts[key] = row.querySelector(".count");
+    row.querySelector("input").addEventListener("change", e => { show[key] = e.target.checked; redraw(); });
+    categoriesEl.append(row);
+  }
+  const score = document.getElementById("score"), scoreValue = document.getElementById("score-value");
+  [score.min, score.max] = cfg.score_slider;
+  score.value = state.score;
+  score.addEventListener("input", () => { scoreValue.textContent = Number(score.value).toFixed(2); });
+  score.addEventListener("change", () => { state.score = Number(score.value); categorise(); redraw(); });
+  scoreValue.textContent = state.score.toFixed(2);
+  document.getElementById("min-d").addEventListener("change", e => { state.minD = Number(e.target.value); redraw(); });
+  document.getElementById("regions").addEventListener("change", e => e.target.checked ? regions.addTo(map) : regions.remove());
+  document.getElementById("verdicts").addEventListener("change", e => { state.verdicts = e.target.checked; craters.redraw(); });
+  const jump = document.getElementById("jump");
+  for (const name of Object.keys(cfg.regions)) jump.add(new Option(name, name));
+  jump.addEventListener("change", () => jump.value ? map.fitBounds(box(cfg.regions[jump.value])) : map.fitBounds(world));
+
+  // ---------------------------------------------------------- live counts of crater centres in view
+  function updateCounts() {
+    const b = map.getBounds(), n = { matched: 0, catalog_only: 0, cnn_only: 0 };
+    const inView = (set, i) => set.lat[i] >= b.getSouth() && set.lat[i] <= b.getNorth()
+                            && [-360, 0, 360].some(s => set.lon[i] + s >= b.getWest() && set.lon[i] + s <= b.getEast());
+    for (let i = 0; i < cat.n; i++) if (visible(cat, i) && inView(cat, i)) n[cat.category[i]]++;
+    for (let j = 0; j < cnn.n; j++) if (cnn.category[j] === "cnn_only" && visible(cnn, j) && inView(cnn, j)) n.cnn_only++;
+    for (const key in n) counts[key].textContent = show[key] ? n[key].toLocaleString() : "–";
+  }
+  function redraw() { craters.redraw(); updateCounts(); }
+  map.on("moveend", updateCounts);
+
+  // ---------------------------------------------------------- click: smallest drawn circle containing the point
+  function hit(set, i, lat, lon, ppd) {
+    if (!visible(set, i) || set.rLat[i] * ppd < cfg.min_radius_px) return false;
+    const dLon = ((lon - set.lon[i] + 540) % 360) - 180, dLat = lat - set.lat[i];
+    return (dLon / set.rLon[i]) ** 2 + (dLat / set.rLat[i]) ** 2 <= 1;
+  }
+  const fmt = (v, digits) => Number(v).toFixed(digits);
+  const where = (set, i) => `${fmt(set.lat[i], 3)}°, ${fmt(set.lon[i], 3)}°E`;
+  const verdictRow = v => v ? `<tr><td>review</td><td>${v.replace("_", " ")}</td></tr>` : "";
+  map.on("click", e => {
+    const { lat, lng: lon } = e.latlng, ppd = pxPerDeg0 * 2 ** map.getZoom();
+    let best = null;
+    for (let i = 0; i < cat.n; i++) if (hit(cat, i, lat, lon, ppd) && (!best || cat.d[i] < best.d)) best = { set: cat, i, d: cat.d[i] };
+    for (let j = 0; j < cnn.n; j++) if (hit(cnn, j, lat, lon, ppd) && (!best || cnn.d[j] < best.d)) best = { set: cnn, i: j, d: cnn.d[j] };
+    if (!best) return;
+    let c = null, d = null;
+    if (best.set === cat) { c = best.i; if (cat.category[c] === "matched") d = cat.partner[c]; }
+    else { d = best.i; if (cnn.category[d] === "matched") c = cnn.partner[d]; }
+    const category = CATEGORIES.find(k => k.key === best.set.category[best.i]).label;
+    let html = `<b style="color:${cfg.colors[best.set.category[best.i]]}">${category}</b><table>`;
+    if (c !== null) html += `<tr><td>catalog</td><td>${cat.id[c]}${cat.name[c] ? ` (${cat.name[c]})` : ""}</td></tr>
+      <tr><td></td><td>${where(cat, c)}, D ${fmt(cat.d[c], 1)} km</td></tr>${verdictRow(cat.verdict[c])}`;
+    if (d !== null) html += `<tr><td>CNN</td><td>${where(cnn, d)}, D ${fmt(cnn.d[d], 1)} km</td></tr>
+      <tr><td></td><td>score ${fmt(cnn.score[d], 3)}, ${cnn.level[d]} tiles</td></tr>${verdictRow(cnn.verdict[d])}`;
+    L.popup().setLatLng(e.latlng).setContent(html + "</table>").openOn(map);
+  });
+
+  const cursor = document.getElementById("cursor");
+  map.on("mousemove", e => { cursor.textContent = `${fmt(e.latlng.lat, 3)}°, ${fmt(((e.latlng.lng % 360) + 360) % 360, 3)}°E  z${map.getZoom()}`; });
+
+  categorise();
+  redraw();
+  window.mapview = { map, cat, cnn, state };   // for poking at from the console
+}
+main();
+</script>
+</body>
+</html>
