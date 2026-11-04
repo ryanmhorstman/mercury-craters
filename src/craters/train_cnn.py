@@ -21,7 +21,7 @@ import torch
 from torch.utils.data import DataLoader, Dataset, Sampler
 
 from .detect import load_tile_image, run_detector
-from .detectors.cnn import CraterNet, Detector, loss_fn, make_targets, standardize
+from .detectors.cnn import CraterNet, Detector, loss_fn, make_targets, overlap_rule, standardize
 from .metrics import evaluate
 from .tiling import catalog_in_tile, tile_from_row
 
@@ -110,9 +110,11 @@ def f_beta(precision, recall, beta):
 def validate(model, cfg, params, tiles, catalog, images):
     """End-to-end V1 F1 and F-beta at each score cutoff, through the same path as the test run."""
     model.eval()
-    detector = Detector.from_model(model, params["level_downsample"], min_score=min(params["score_cutoffs"]))
+    twins = params["twin_suppression"]
+    detector = Detector.from_model(model, params["level_downsample"], min_score=min(params["score_cutoffs"]), twins=twins)
     boxes = list(cfg["regions"]["validation"].values())
-    detections = run_detector(detector, tiles, boxes, cfg, images=images, progress=False)
+    detections = run_detector(detector, tiles, boxes, cfg, images=images, progress=False,
+                              merge=overlap_rule(cfg["match"], twins))
     rows = []
     for cutoff in params["score_cutoffs"]:
         kept = detections[detections["score"] >= cutoff]

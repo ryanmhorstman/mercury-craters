@@ -115,6 +115,47 @@ conda run -n mercury-craters python -m craters.phase4 register   # writes data/p
 - The original CNN's training labels. A retrain on registered labels (`cnn_reg`) is in
   phase3-notes.md §3.3b: higher precision, lower 5–10 km recall.
 
+## CNN twin fix (2026-11-03)
+
+The CNN models drew many craters twice: a second, weaker circle ~0.7–0.8 D west of the first
+(phase3-notes.md §3.3c). After the fix, `phase4 build` gives **3,552 items to review instead of
+4,599**. The verdicts file is untouched; verdicts on circles that no longer exist simply no longer
+apply.
+- **346 of the 3,552 items are reviewed**, down from 462 of 4,599.
+- **135 reviewed detection items disappeared.** 126 of them had a kept same-size circle within 1 D
+  (median 0.72 D), so they were twins. Their verdicts: **93 real**, 28 not real, 5 unsure.
+  - Only 8 pairs had both members reviewed: 4 both "real", 2 one of each, 2 with no "real".
+  - So direct double-counting was small. The bigger effect was on the extrapolation: reviewed
+    twins were "real" 75% of the time, against 57% for other 5–10 km detections, and that raised
+    the rate applied to every unreviewed 5–10 km detection.
+  - **Why so many ghosts were "real" is open.** A circle 0.7–0.8 D off a crater has the crater's
+    centre outside it, which the review rule calls "not real". The likely reading is that a
+    neighbouring crater, or the dashed circle overlapping most of the crater, was accepted. The
+    list is in `data/detections_pre_twinfix/reviewed_items_removed_by_twin_fix.csv` for spot
+    checks.
+- **Reviewed 5–10 km `cnn_reg_f2` detections judged real: 65% → 56%** (68% → 58% leaving out
+  "unsure"). The "73%" in older notes came from an earlier verdict count. Adjusted 5–10 km
+  precision, which counts matched detections too, goes from 0.72 to **0.75**: the twins had also
+  been unmatched detections, and most of the remaining ones are matched.
+- **Estimated new real craters in T1–T3: 2,046 → 1,198. Catalog completeness: 0.44 → 0.57**
+  (5–10 km: 0.31 → 0.44).
+
+| `cnn_reg_f2`, T1–T3 | Raw P / R / F1 | Verdict-adjusted P / R / F1 |
+|---|---|---|
+| all, before | 0.354 / 0.819 / 0.494 | 0.754 / 0.875 / 0.810 |
+| all, after | 0.508 / 0.789 / **0.618** | 0.800 / 0.802 / **0.801** |
+| 5–10 km, before | 0.242 / 0.789 / 0.370 | 0.723 / 0.886 / 0.797 |
+| 5–10 km, after | 0.381 / 0.749 / 0.505 | 0.751 / 0.786 / 0.768 |
+| 10–20 km, before | 0.750 / 0.846 / 0.795 | 0.851 / 0.874 / 0.863 |
+| 10–20 km, after | 0.828 / 0.830 / 0.829 | 0.923 / 0.858 / 0.889 |
+
+Also fixed: `phase2` and `phase4` used to read every file in `data/detections/`, including
+`global_cnn_reg_f2.parquet` once the global run existed. That file is now skipped there and
+compared by `compare_global` instead.
+
+The north-south registration wasn't rerun. It uses detections ≥ 10 km, where twins are rare and
+fall outside the 0.5·D matching anyway.
+
 ## Assumptions to keep in mind
 
 - Catalog craters that *every* detector matched aren't reviewed and are assumed real.

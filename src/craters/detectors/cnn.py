@@ -7,6 +7,12 @@ The network looks at a greyscale tile and outputs, at 1/4 resolution:
 A crater is read off as a local maximum of `heat`. Because the output is a
 centre and a radius, the detector produces circles directly.
 
+One crater can light up two local maxima: the trained models put a weaker
+second peak 8-9 output cells (~1.5 radii) west of the real one, too far apart
+for the 3x3 peak window. `suppress_twins` keeps only the stronger of two
+similar-sized circles whose centres are that close, and `overlap_rule` applies
+the same test when merging tiles (docs/phase3-notes.md).
+
 Backbone: torchvision ResNet-34 (ImageNet weights, BSD licence), with its
 first layer collapsed to one input channel, plus a small feature-pyramid
 decoder back to stride 4.
@@ -138,9 +144,31 @@ def loss_fn(output, batch):
 
 # ---------------------------------------------------------------- decoding and inference
 
+def suppress_twins(circles, radius_frac, ratio_min, ratio_max):
+    """Drop each circle whose centre lies within radius_frac x the radius of a
+    higher-scoring circle of similar size (radius ratio within [ratio_min, ratio_max]).
+
+    circles: DataFrame of col, row, radius_px, score. Greedy, best score first.
+    """
+    circles = circles.sort_values("score", ascending=False, kind="stable").reset_index(drop=True)
+    xy = circles[["col", "row"]].to_numpy()
+    r = circles["radius_px"].to_numpy()
+    distance = np.hypot(*(xy[:, None, :] - xy[None, :, :]).transpose(2, 0, 1))
+    ratio = r[None, :] / r[:, None]                      # [kept, other]: other's radius over kept's
+    covers = (distance <= radius_frac * r[:, None]) & (ratio >= ratio_min) & (ratio <= ratio_max)
+    keep = np.ones(len(circles), dtype=bool)
+    for i in range(len(circles)):
+        if keep[i]:
+            keep[i + 1:] &= ~covers[i, i + 1:]
+    return circles[keep].reset_index(drop=True)
+
+
 @torch.no_grad()
-def decode(output, min_score=0.05, top_k=600):
-    """Network output for one image -> DataFrame of col, row, radius_px, score (input pixels)."""
+def decode(output, min_score=0.05, top_k=600, twins=None):
+    """Network output for one image -> DataFrame of col, row, radius_px, score (input pixels).
+
+    twins: optional dict radius_frac, ratio_min, ratio_max for `suppress_twins`.
+    """
     heat = torch.sigmoid(output["heat"][0, 0].float())
     peaks = heat == F.max_pool2d(heat[None, None], 3, stride=1, padding=1)[0, 0]
     scores = (heat * peaks).flatten()
@@ -154,26 +182,37 @@ def decode(output, min_score=0.05, top_k=600):
     col = (ix.float() + off[0, iy, ix] + 0.5) * STRIDE
     row = (iy.float() + off[1, iy, ix] + 0.5) * STRIDE
     radius = torch.exp(output["logr"][0, 0].float()[iy, ix])
-    return pd.DataFrame({"col": col.cpu().numpy(), "row": row.cpu().numpy(),
-                         "radius_px": radius.cpu().numpy(), "score": values.cpu().numpy()})
+    circles = pd.DataFrame({"col": col.cpu().numpy(), "row": row.cpu().numpy(),
+                            "radius_px": radius.cpu().numpy(), "score": values.cpu().numpy()})
+    return suppress_twins(circles, **twins) if twins else circles
+
+
+def overlap_rule(match, twins):
+    """Rule for merging detections across overlapping tiles: the usual same-crater
+    rule, widened to the twin rule so a twin split across two tiles is merged too."""
+    if not twins:
+        return match
+    return {"center_frac": max(match["center_frac"], twins["radius_frac"] / 2.0),   # radii -> diameters
+            "ratio_min": twins["ratio_min"], "ratio_max": twins["ratio_max"]}
 
 
 class Detector:
     """Callable for detect.run_detector: (image, tile, level_cfg) -> circles in tile pixels."""
 
-    def __init__(self, checkpoint, downsample, device=None, min_score=0.05):
+    def __init__(self, checkpoint, downsample, device=None, min_score=0.05, twins=None):
         self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
         self.model = CraterNet(pretrained=False).to(self.device).eval()
         state = torch.load(checkpoint, map_location=self.device, weights_only=True)
         self.model.load_state_dict(state["model"] if "model" in state else state)
         self.downsample = downsample          # {level name: factor}
         self.min_score = min_score
+        self.twins = twins
 
     @classmethod
-    def from_model(cls, model, downsample, min_score=0.05):
+    def from_model(cls, model, downsample, min_score=0.05, twins=None):
         detector = cls.__new__(cls)
         detector.device = str(next(model.parameters()).device)
-        detector.model, detector.downsample, detector.min_score = model, downsample, min_score
+        detector.model, detector.downsample, detector.min_score, detector.twins = model, downsample, min_score, twins
         return detector
 
     @torch.no_grad()
@@ -186,6 +225,6 @@ class Detector:
         x = torch.from_numpy(standardize(image))[None, None].to(self.device)
         with torch.autocast(device_type=self.device.split(":")[0], enabled=self.device.startswith("cuda")):
             output = self.model(x)
-        circles = decode(output, self.min_score)
+        circles = decode(output, self.min_score, twins=self.twins)
         circles[["col", "row", "radius_px"]] *= f
         return circles

@@ -22,7 +22,9 @@ from .registration import matched_offsets, register
 
 
 def detectors(cfg):
-    return {path.stem: pd.read_parquet(path) for path in sorted(cfg["paths"]["detections"].glob("*.parquet"))}
+    paths = sorted(cfg["paths"]["detections"].glob("*.parquet"))
+    return {path.stem: pd.read_parquet(path) for path in paths
+            if not path.stem.startswith("global_")}     # the whole-planet run is compared in compare_global
 
 
 def register_catalog(cfg):
@@ -72,8 +74,10 @@ def label_detector(cfg, name):
 
     models = cfg["paths"]["models"]
     best = json.loads((models / f"{name}_best.json").read_text())
-    level_downsample = cfg["detectors"]["cnn"]["level_downsample"]
-    return Detector(models / f"{name}_best.pt", level_downsample, min_score=best["score_cutoff"]), best["score_cutoff"]
+    params = cfg["detectors"]["cnn"]
+    detector = Detector(models / f"{name}_best.pt", params["level_downsample"], min_score=best["score_cutoff"],
+                        twins=params["twin_suppression"])
+    return detector, best["score_cutoff"]
 
 
 def register_training_labels(cfg):
@@ -85,6 +89,7 @@ def register_training_labels(cfg):
     them, for CNN labels only. Scoring keeps using catalog_registered.
     """
     from .detect import detect_on_tiles, tiles_covering
+    from .detectors.cnn import overlap_rule
     from .geo import in_box
 
     params = cfg["registration"]
@@ -102,7 +107,8 @@ def register_training_labels(cfg):
         if not path.exists():
             print(f"running {name} over {len(chosen)} train + V1 tiles", flush=True)
             detect_fn, cutoff = label_detector(cfg, name)
-            detections = detect_on_tiles(detect_fn, chosen, cfg)
+            merge = None if name == "hough" else overlap_rule(cfg["match"], cfg["detectors"]["cnn"]["twin_suppression"])
+            detections = detect_on_tiles(detect_fn, chosen, cfg, merge=merge)
             detections[detections["score"] >= cutoff].reset_index(drop=True).to_parquet(path, index=False)
         found[name] = pd.concat([pd.read_parquet(cfg["paths"]["detections"] / f"{name}.parquet"),
                                  pd.read_parquet(path)], ignore_index=True)

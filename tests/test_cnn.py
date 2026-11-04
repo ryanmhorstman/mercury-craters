@@ -1,8 +1,9 @@
 import numpy as np
+import pandas as pd
 import pytest
 import torch
 
-from craters.detectors.cnn import STRIDE, CraterNet, decode, loss_fn, make_targets
+from craters.detectors.cnn import STRIDE, CraterNet, decode, loss_fn, make_targets, suppress_twins
 from craters.train_cnn import dihedral
 
 
@@ -71,3 +72,49 @@ def test_f_beta_is_f1_at_beta_1_and_favours_recall_above_it():
     assert f_beta(0.6, 0.4, 1) == pytest.approx(2 * 0.6 * 0.4 / 1.0)
     assert f_beta(0.4, 0.6, 2) > f_beta(0.6, 0.4, 2)
     assert f_beta(0.0, 0.0, 2) == 0.0
+
+
+TWINS = {"radius_frac": 2.0, "ratio_min": 0.75, "ratio_max": 1.33}
+
+
+def two_peak_output(peaks, size=128):
+    """Heatmap with a peak per (ix, iy, logit) and radius 20 px everywhere."""
+    out = size // STRIDE
+    heat = torch.full((1, 1, out, out), -20.0)
+    for ix, iy, logit in peaks:
+        heat[0, 0, iy, ix] = logit
+    return {"heat": heat, "offset": torch.zeros((1, 2, out, out)), "logr": torch.full((1, 1, out, out), np.log(20.0))}
+
+
+def test_a_second_weaker_peak_on_the_same_crater_is_suppressed():
+    # The strong peak and a weaker one 8 cells (32 px, 1.6 radii) west, as the trained models produce.
+    output = two_peak_output([(20, 16, 3.0), (12, 16, 1.0)])
+    assert len(decode(output, min_score=0.5)) == 2               # the 3x3 peak window keeps both
+    found = decode(output, min_score=0.5, twins=TWINS)
+    assert len(found) == 1
+    assert found["col"].iloc[0] == pytest.approx((20 + 0.5) * STRIDE)
+
+
+def test_separate_craters_of_the_same_size_stay_separate():
+    # Neighbours 11 cells (44 px, 2.2 radii) away, west and north: rims nearly touching.
+    output = two_peak_output([(20, 16, 3.0), (9, 16, 2.0), (20, 5, 2.0)])
+    assert len(decode(output, min_score=0.5, twins=TWINS)) == 3
+
+
+def test_twin_suppression_ignores_circles_of_different_size():
+    circles = pd.DataFrame({"col": [100.0, 70.0], "row": [100.0, 100.0], "radius_px": [20.0, 8.0], "score": [0.9, 0.5]})
+    assert len(suppress_twins(circles, **TWINS)) == 2
+
+
+def test_overlap_rule_merges_twins_split_across_tiles():
+    from craters.dedupe import merge_overlap_detections
+    from craters.detectors.cnn import overlap_rule
+
+    match = {"center_frac": 0.5, "ratio_min": 0.75, "ratio_max": 1.33}
+    assert overlap_rule(match, None) == match
+    # Same 6 km crater from two tiles, the second circle 0.8 D west (a twin): 0.5 D merging keeps both.
+    km_per_deg = np.radians(1.0) * 2439.4
+    twins = pd.DataFrame({"lat": [0.0, 0.0], "lon": [10.0, 10.0 - 0.8 * 6.0 / km_per_deg],
+                          "diameter_km": [6.0, 6.0], "score": [0.3, 0.2]})
+    assert len(merge_overlap_detections(twins, match)) == 2
+    assert len(merge_overlap_detections(twins, overlap_rule(match, TWINS))) == 1

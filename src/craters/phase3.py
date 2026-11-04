@@ -3,6 +3,7 @@
     python -m craters.phase3 cache-tiles     # render train + V1 tiles once
     python -m craters.phase3 hough
     python -m craters.phase3 cnn             # train (~1 h on an RTX 3060 Ti), then run
+    python -m craters.phase3 cnn --skip-training --model cnn_reg   # re-run a saved model on T1-T3
     python -m craters.phase3 global          # run the chosen CNN over the whole planet
 
 Writes data/detections/<detector>.parquet for Phase 2 to score, and the
@@ -77,7 +78,7 @@ def run_hough(cfg):
 
 
 def run_cnn(cfg, skip_training=False):
-    from .detectors.cnn import Detector
+    from .detectors.cnn import Detector, overlap_rule
     from .train_cnn import train
 
     params = cfg["detectors"]["cnn"]
@@ -86,9 +87,10 @@ def run_cnn(cfg, skip_training=False):
 
     print(f"running on T1-T3 with epoch {best['epoch']} checkpoint, score >= {best['score_cutoff']}")
     tiles = pd.read_parquet(cfg["paths"]["tiles"])
-    detector = Detector(models / f"{name}_best.pt", params["level_downsample"], min_score=best["score_cutoff"])
+    twins = params["twin_suppression"]
+    detector = Detector(models / f"{name}_best.pt", params["level_downsample"], min_score=best["score_cutoff"], twins=twins)
     test_boxes = list(cfg["regions"]["test"].values())
-    detections = run_detector(detector, tiles, test_boxes, cfg)
+    detections = run_detector(detector, tiles, test_boxes, cfg, merge=overlap_rule(cfg["match"], twins))
     cfg["paths"]["detections"].mkdir(parents=True, exist_ok=True)
     detections.to_parquet(cfg["paths"]["detections"] / f"{name}.parquet", index=False)
     print(f"wrote {len(detections)} detections")
@@ -130,7 +132,7 @@ def global_tiles(cfg):
 
 def run_global(cfg):
     """Run the chosen CNN over every tile on the planet; same levels, merging and cutoff as T1-T3."""
-    from .detectors.cnn import Detector
+    from .detectors.cnn import Detector, overlap_rule
 
     params = cfg["detectors"]["cnn"]
     models, name = cfg["paths"]["models"], params["model_name"]
@@ -143,8 +145,9 @@ def run_global(cfg):
 
     print(f"detecting with {name} (epoch {best['epoch']}, score >= {best['score_cutoff']})", flush=True)
     start = time.time()
-    detector = Detector(models / f"{name}_best.pt", params["level_downsample"], min_score=best["score_cutoff"])
-    detections = detect_on_tiles(detector, tiles, cfg, progress=True)
+    twins = params["twin_suppression"]
+    detector = Detector(models / f"{name}_best.pt", params["level_downsample"], min_score=best["score_cutoff"], twins=twins)
+    detections = detect_on_tiles(detector, tiles, cfg, progress=True, merge=overlap_rule(cfg["match"], twins))
     detect_s = time.time() - start
 
     columns = ["lon", "lat", "diameter_km", "score", "level", "n_tiles", "tile_id"]
@@ -162,8 +165,11 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("detector", choices=["hough", "cnn", "cache-tiles", "global"])
     parser.add_argument("--skip-training", action="store_true", help="cnn: reuse the saved best checkpoint")
+    parser.add_argument("--model", help="cnn: model name instead of detectors.cnn.model_name (e.g. to re-run an older model)")
     args = parser.parse_args()
     cfg = load_config()
+    if args.model:
+        cfg["detectors"]["cnn"]["model_name"] = args.model
     if args.detector == "hough":
         run_hough(cfg)
     elif args.detector == "cnn":

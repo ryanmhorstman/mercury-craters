@@ -55,18 +55,19 @@ def to_lonlat(tile, circles, level_cfg):
                          "score": circles["score"].to_numpy()[keep], "tile_id": tile.tile_id, "level": tile.level})
 
 
-def run_detector(detect_fn, tiles, boxes, cfg, levels=None, images=None, progress=True):
+def run_detector(detect_fn, tiles, boxes, cfg, levels=None, images=None, progress=True, merge=None):
     """Detect over every tile touching the boxes, then merge repeats.
 
     images: optional dict tile_id -> uint8 array, to skip disk reads when the
     same tiles are scored many times (parameter tuning).
+    merge: rule for merging repeats across tiles; defaults to cfg["match"].
     """
     chosen = pd.concat([tiles_covering(tiles, boxes, name) for name in cfg["tiling"]["levels"]
                         if not levels or name in levels])
-    return detect_on_tiles(detect_fn, chosen, cfg, images, progress)
+    return detect_on_tiles(detect_fn, chosen, cfg, images, progress, merge)
 
 
-def detect_on_tiles(detect_fn, tiles, cfg, images=None, progress=True):
+def detect_on_tiles(detect_fn, tiles, cfg, images=None, progress=True, merge=None):
     """Detect over exactly the given tiles (any mix of levels), then merge repeats."""
     found = []
     for level_name, level_cfg in cfg["tiling"]["levels"].items():
@@ -81,4 +82,4 @@ def detect_on_tiles(detect_fn, tiles, cfg, images=None, progress=True):
     if not found:
         return pd.DataFrame(columns=["lat", "lon", "diameter_km", "score", "tile_id", "level"])
     detections = pd.concat(found, ignore_index=True)
-    return merge_overlap_detections(detections, cfg["match"])
+    return merge_overlap_detections(detections, merge or cfg["match"])

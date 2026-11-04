@@ -29,7 +29,8 @@ def load_detectors(cfg, catalog):
     det_dir = cfg["paths"]["detections"]
     if det_dir.exists():
         for path in sorted(det_dir.glob("*.parquet")):
-            detectors[path.stem] = pd.read_parquet(path)
+            if not path.stem.startswith("global_"):     # the whole-planet run is scored by compare_global
+                detectors[path.stem] = pd.read_parquet(path)
 
     test_boxes = list(cfg["regions"]["test"].values())
     detectors["sanity:catalog_self"] = catalog[["lat", "lon", "diameter_km"]].assign(score=1.0)

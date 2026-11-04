@@ -8,9 +8,9 @@ marked **unverified** were not confirmed, and need checking before anyone relies
 | Claim | Verdict | Why |
 |---|---|---|
 | (a) Smooth 1–10 km N–S offset between the 2015 JMARS-era mosaic and the USGS basemap | **Weak: the offset is already published.** | Herrick et al. 2018 report a "varying, but typically ~5 km" offset between the 2013 MDIS v9 mosaic and the Becker et al. 2016 basemaps. The cause is documented: the earlier products used uncontrolled pointing. What's new here is only the measured smooth N–S field, which is useful but small. |
-| (b) Blind adjudication corrects metrics against an incomplete catalog (raw P 0.35 → adjusted 0.70) | **Holds, with conditions.** | Others have checked new detections by hand (Silburt et al. 2019; Robbins, SwRI 2023), and the 2025 Mercury DL catalog reports recall only. A blind, source-hidden review that mixes catalog and detector circles is a real method contribution. But only 214 of 4,599 items are reviewed, and the only reviewer is the catalog's author. |
-| (c) Strict "defined-rim" catalog agrees with the CNN at 11–23 km, while the CNN finds 4.4× more at 5–10 km | **Partly holds.** | A diverging count below ~10 km is *expected*. On Mercury, secondaries dominate below ~8–10 km, and Herrick 2018 excluded them. Analysts also differ by up to ±45% (Robbins et al. 2014). The new part is a quantified single-analyst-vs-CNN comparison, plus the strict criterion as an explanation. It needs Herrick 2018 as a third catalog to be convincing. |
-| (d) New global ≥5 km Mercury catalog (54,598 detections) | **Not novel as a headline.** | Herrick et al. 2018 published a hand-made global >5 km catalog (~36K craters per their 2015 abstract). La Grassa et al. 2025 released a deep-learning global catalog of >6 million craters >400 m, public on figshare. |
+| (b) Blind adjudication corrects metrics against an incomplete catalog (raw P 0.51 → adjusted 0.80, after the 2026-11-03 twin fix) | **Holds, with conditions.** | Others have checked new detections by hand (Silburt et al. 2019; Robbins, SwRI 2023), and the 2025 Mercury DL catalog reports recall only. A blind, source-hidden review that mixes catalog and detector circles is a real method contribution. But only 214 of 4,599 items are reviewed, and the only reviewer is the catalog's author. |
+| (c) Strict "defined-rim" catalog agrees with the CNN at 11–23 km, while the CNN finds 2.8× more at 5–10 km (4.4× before the twin fix) | **Partly holds.** | A diverging count below ~10 km is *expected*. On Mercury, secondaries dominate below ~8–10 km, and Herrick 2018 excluded them. Analysts also differ by up to ±45% (Robbins et al. 2014). The new part is a quantified single-analyst-vs-CNN comparison, plus the strict criterion as an explanation. It needs Herrick 2018 as a third catalog to be convincing. |
+| (d) New global ≥5 km Mercury catalog (38,462 detections after the twin fix; 54,598 before) | **Not novel as a headline.** | Herrick et al. 2018 published a hand-made global >5 km catalog (~36K craters per their 2015 abstract). La Grassa et al. 2025 released a deep-learning global catalog of >6 million craters >400 m, public on figshare. |
 
 **LPSC 2027:** abstracts are due **January 5, 2027, 11:59 p.m. US CST**, and the form opens in
 November 2026 ([LPSC 2027](https://www.hou.usra.edu/meetings/lpsc2027/abstract-submission/)). An
@@ -34,10 +34,11 @@ La Grassa 2025.
 | Szczech et al. 2024, impact structures and buried basins from stereo DTMs ([TU Berlin](https://depositonce.tu-berlin.de/items/4e2d612d-35ca-4711-8f98-f81c15eed33e/full)) | basins / large structures | MESSENGER stereo | — | not checked |
 | Horstman 2016 (this project's thesis catalog) | ≥ 5 km, defined rims only | ~250 m/px MDIS mosaic in JMARS | 20,391 | — |
 
-**Back-of-envelope comparison at ≥ 10 km.** The CNN finds 13,668 craters ≥ 10 km
-(8,217 + 4,500 + 951; [global-run.md](global-run.md)). Herrick has ~12K > 10 km, and the thesis has
-11,087. All three catalogs agree within ~20% at ≥ 10 km. They split apart only at 5–10 km: thesis
-9.3K, Herrick ~24K (~36K − ~12K, from the 2015 abstract), CNN 40.9K. *This is my inference from the
+**Back-of-envelope comparison at ≥ 10 km.** The CNN finds 12,236 craters ≥ 10 km
+(7,045 + 4,260 + 931; [global-run.md](global-run.md), after the twin fix). Herrick has ~12K > 10 km,
+and the thesis has 11,087. All three catalogs agree within ~10% at ≥ 10 km. They split apart only at
+5–10 km: thesis 9.3K, Herrick ~24K (~36K − ~12K, from the 2015 abstract), CNN 26.2K (40.9K before
+the twin fix). So the CNN is now close to Herrick there. *This is my inference from the
 cited counts, not a published comparison.*
 
 ### 1b. ML / automated crater detectors
@@ -56,11 +57,11 @@ cited counts, not a published comparison.*
 | Human reference catalogs: Robbins 2019 Moon ≥ 1–2 km, 1.3M craters, [doi:10.1029/2018JE005592](https://astrogeology.usgs.gov/search/map/moon_crater_database_v1_robbins); Robbins & Hynek 2012 Mars ≥ 1 km, 384,343 craters, [doi:10.1029/2011JE003966](https://vufind-test.katalog.k.utb.cz/SummonRecord/FETCH-LOGICAL-c4407-3f61bb0a70707f4d933364f567e59887b1524b5bd176077e7663fc53877d5fac3) | — | Ground truth used by most of the ML work above |
 
 **Benchmarking honestly.** Our held-out T1–T3 figures:
-- **Raw:** recall 0.82, precision 0.35, F1 0.49.
-- **Verdict-adjusted:** P 0.70, R 0.88, F1 0.78; the 0.81 global-run figure uses a slightly different item set.
+- **Raw:** recall 0.79, precision 0.51, F1 0.62 (before the twin fix: 0.82 / 0.35 / 0.49).
+- **Verdict-adjusted:** P 0.80, R 0.80, F1 0.80 (before: 0.75 / 0.88 / 0.81).
 
 Silburt's 92% and Lee & Hogan's ~80% are recalls against a *human catalog*, and so is La Grassa's
-84%. Our raw recall of 0.82 is the like-for-like number. None of these papers report a
+84%. Our raw recall of 0.79 is the like-for-like number. None of these papers report a
 blind-reviewed precision on Mercury, so the adjusted precision is the distinctive number. It needs
 more review before it can carry weight (§7).
 
@@ -201,7 +202,7 @@ adjudication, and comparison with Herrick et al. (2018)."*
 |---|---|---|
 | Lead claims | (b) and (c); cite (a) as a known effect, with our measured field | (b) and (c) in full; (a) as a section; (d) as a released data product |
 | Drop or soften | "first/new global catalog" | same |
-| **Minimum extra work** | 1. Match against the Herrick 2018 SI catalog and the ME6M300TGT ≥ 5 km subset, giving counts per bin plus match rates. 2. Review a few hundred more items, mainly `cnn_reg_f2` 5–10 km detections; only 214 of 4,599 are reviewed now. 3. Find the exact 2015 JMARS mosaic version and cite Herrick's ~5 km offset. 4. State that the reviewer is the catalog author. | Everything in the LPSC column, plus: 5. **A second, independent reviewer** on a random subset (~300 items), reporting agreement (e.g. Cohen's κ); expected given ±45% expert spread (Robbins 2014). 6. Review samples outside T1–T3 (polar, the unregistered stripes). 7. Fix or explain the 30–45 km fine/coarse merge bump. 8. Separate secondaries from primaries at 5–10 km, or test against Herrick's secondary-excluded counts. 9. Release the catalog, model and code with a DOI (e.g. Zenodo) and a data-availability statement. 10. AI-use disclosure. |
+| **Minimum extra work** | 1. Match against the Herrick 2018 SI catalog and the ME6M300TGT ≥ 5 km subset, giving counts per bin plus match rates. 2. Review a few hundred more items, mainly `cnn_reg_f2` 5–10 km detections; only 346 of 3,552 are reviewed now. 3. Find the exact 2015 JMARS mosaic version and cite Herrick's ~5 km offset. 4. State that the reviewer is the catalog author. | Everything in the LPSC column, plus: 5. **A second, independent reviewer** on a random subset (~300 items), reporting agreement (e.g. Cohen's κ); expected given ±45% expert spread (Robbins 2014). 6. Review samples outside T1–T3 (polar, the unregistered stripes). 7. Fix or explain the 30–45 km fine/coarse merge bump. 8. Separate secondaries from primaries at 5–10 km, or test against Herrick's secondary-excluded counts. 9. Release the catalog, model and code with a DOI (e.g. Zenodo) and a data-availability statement. 10. AI-use disclosure. |
 | Second reviewer? | Nice to have; list it as a limitation | **Needed**: reviewers will ask, and a single reviewer who also made the catalog is the obvious objection |
 | Cost | $65 submission plus registration (2026: $475 virtual / $650 in person) | PSJ ≈ $2–3k; ESS methods ≈ $1.4k; Icarus or C&G subscription route $0 |
 

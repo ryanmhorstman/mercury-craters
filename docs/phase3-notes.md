@@ -197,6 +197,114 @@ What it shows:
 - Activate the env (or put `<env>\Library\bin` on PATH): plain `python.exe` without it crashes
   in matplotlib with Windows error 0xc06d007f (a DLL load failure).
 
+## 3.3c East-west twins: one crater, two circles (fixed 2026-11-03)
+
+The map viewer showed `cnn_reg_f2` circles in side-by-side pairs: same size, centres 0.5–1 D apart,
+nearly always offset east-west. The overlap merge only joins centres within 0.5·D, so both survive.
+
+**How common, against the catalog's own neighbours** (D ≥ 5 km; "in a pair" = has a neighbour of
+diameter ratio 0.75–1.33 whose centre is 0.5–1 D away):
+
+| Set | Circles | In a pair | Pairs offset mostly E-W | Pairs from one tile |
+|---|---:|---:|---:|---:|
+| Thesis catalog, whole planet | 20,391 | 3.9% | 48% | — |
+| Thesis catalog, T1–T3 | 1,982 | 3.7% | 38% | — |
+| Thesis catalog, V1 | 487 | 3.3% | 1 of 8 | — |
+| `cnn` (T1–T3) | 3,481 | 27% | 84% | 74% |
+| `cnn_reg` (T1–T3) | 2,723 | 19% | 73% | 60% |
+| `cnn_reg_f2` (T1–T3) | 7,348 | **60%** | 93% | 83% |
+| Hough (T1–T3) | 2,105 | 0.9% | — | — |
+
+Real overlapping same-size craters exist (~4%, no preferred direction). The CNN pairs are an
+artefact of all three models. It's worst in `cnn_reg_f2` because its low cutoff (0.15) admits the
+weaker member, and Hough doesn't show it.
+
+**Cause: a second, weaker heatmap peak west of the real one.** Decoding the V1 tiles and looking
+inside single tiles (1,091 pairs):
+- **The second peak is 8–9 output cells (32–36 px) away:** median 8.1 cells, and 89% sit *west* of
+  the stronger peak, with dy = 0 ± 1 cell. That is ~1.5 crater radii for typical 5–10 km craters,
+  far outside the 3×3 window `decode` used to find local maxima.
+- **It's the weaker peak:** score 0.19 against 0.23. The heat between the two peaks dips to ~60%
+  of the weaker one, so they are genuinely two maxima, not one smeared blob.
+- **The stronger peak sits on the crater.** Where a catalog crater lies under the pair, it is at
+  the stronger peak (median position 0.0 along the pair axis, 0 = stronger, 1 = weaker).
+- **Likely origin:** an almost fixed pixel offset in one direction points at the lighting. The
+  low-incidence mosaic lights craters from one side, giving a bright rim on one side and a dark
+  shadow on the other. The network probably fires partly on that rim/shadow pattern as if it were a
+  centre. This wasn't tested further: the fix doesn't depend on it.
+  The training targets aren't the cause: they put one Gaussian on each crater centre, and
+  registration moved labels only north-south. So no retraining is needed.
+
+**Fix: size-aware suppression in `decode`** (`detectors.cnn.suppress_twins`). After peak picking,
+circles are visited best score first. Each one drops every weaker circle of similar radius
+(ratio 0.75–1.33) whose centre lies within `radius_frac` radii. Settings are in
+`detectors.cnn.twin_suppression`.
+
+**Choosing `radius_frac` on V1 only** (each model at its own cutoff; "in a pair" as above, catalog
+V1 3.3%):
+
+| `radius_frac` | `cnn_reg_f2`: V1 F2 / F1 / in a pair | `cnn_reg`: F1 / in a pair | `cnn`: F1 / in a pair |
+|---|---|---|---|
+| off | 0.691 / 0.516 / 55% | 0.600 / 22% | 0.604 / 19% |
+| 1.5 | 0.711 / 0.551 / 41% | 0.608 / 17% | 0.617 / 13% |
+| 1.75 | 0.724 / 0.579 / 26% | 0.621 / 10% | 0.623 / 9% |
+| **2.0** | **0.745 / 0.620 / 5.1%** | **0.628 / 3.0%** | **0.637 / 2.8%** |
+| 2.25 | 0.752 / 0.646 / 3.9% | 0.621 / 2.8% | 0.638 / 2.2% |
+| 2.5 | 0.756 / 0.659 / 3.3% | 0.620 / 2.8% | 0.645 / 2.0% |
+
+- **Chosen: 2.0, i.e. centres within one diameter.** That brings the pair rate down to the
+  catalog's level, and every model's best V1 cutoff is unchanged (0.15 / 0.2 / 0.15).
+- Larger values still nudge F2 up, but they start removing separate craters whose rims don't even
+  touch. The gain comes from deleting near neighbours, not from removing more twins.
+- The cost of 2.0: of two genuinely overlapping same-size craters, the weaker one is dropped.
+  By the catalog baseline that's at most ~2% of real craters.
+- **Tile-overlap merging uses the same rule** (`detectors.cnn.overlap_rule`: centres within 1 D,
+  ratio 0.75–1.33, CNN only; Hough keeps the 0.5·D rule).
+  - With the decode fix alone, T1–T3 `cnn_reg_f2` still had 6.3% of circles in pairs. All of those
+    came from two different tiles, 91% east-west: a twin whose partner was found in the
+    neighbouring tile.
+  - On V1, widening the merge is neutral: F2 0.745 → 0.743, F1 0.620 → 0.624. It takes the pair
+    rate to ~0.5%, so it's used for consistency.
+
+## 3.3d T1–T3 after the twin fix
+
+```
+python -m craters.phase3 cnn --skip-training --model cnn          # likewise cnn_reg, cnn_reg_f2
+python -m craters.phase2 && python -m craters.phase4 build && python -m craters.phase4 report
+```
+
+Same weights and cutoffs; only decoding and merging changed. The pre-fix detection files are kept
+in `data/detections_pre_twinfix/`.
+
+| Model | T1–T3 detections | In a same-size pair (catalog 3.7%) |
+|---|---:|---:|
+| `cnn` | 3,481 → 2,999 | 27% → 0.7% |
+| `cnn_reg` | 2,723 → 2,469 | 19% → 0.2% |
+| `cnn_reg_f2` | 7,348 → **5,158** | 60% → 0.4% |
+
+Before → after, registered catalog, P / R / F1 for "all", from one Phase 4 report each:
+
+| Model | Raw: all | Raw: 5–10 F1 | Verdict-adjusted: all | Verdict-adjusted: 5–10 F1 |
+|---|---|---|---|---|
+| `cnn` | 0.60 / 0.57 / 0.586 → 0.70 / 0.56 / **0.621** | 0.439 → 0.479 | 0.83 / 0.41 / 0.548 → 0.87 / 0.47 / **0.607** | 0.419 → 0.465 |
+| `cnn_reg` | 0.76 / 0.51 / 0.609 → 0.81 / 0.49 / **0.613** | 0.433 → 0.434 | 0.90 / 0.32 / 0.469 → 0.92 / 0.38 / **0.539** | 0.279 → 0.334 |
+| `cnn_reg_f2` | 0.35 / 0.82 / 0.494 → 0.51 / 0.79 / **0.618** | 0.370 → 0.505 | 0.75 / 0.88 / 0.810 → 0.80 / 0.80 / **0.801** | 0.797 → 0.768 |
+
+("Before" is the last pre-fix report, with 462 items reviewed; the §3.3b table above was made at
+214.)
+
+What it shows:
+- **Raw precision rises sharply and recall barely moves.** For `cnn_reg_f2`, raw F1 goes from
+  0.494 to 0.618, and it is now the best raw F1 of the three. Each twin was an unmatched
+  detection, i.e. a false positive against the catalog.
+- **Recall drops about 3 points** (`cnn_reg_f2` 0.819 → 0.789). Most of it is at 5–10 km, plus a few
+  ≥ 20 km craters lost to the wider merge.
+- **Verdict-adjusted F1 for `cnn_reg_f2` is about unchanged (0.810 → 0.801), but the balance moved:**
+  adjusted precision went up (0.75 → 0.80) and adjusted recall down (0.88 → 0.80). Many twins had
+  been reviewed as "real" (`docs/phase4-notes.md`), which counted them as found real craters.
+- The older models gain in adjusted F1, because ghost items proposed only by `cnn_reg_f2` no longer
+  count as craters they missed.
+
 ## Next
 
 - Phase 4 adjudication. Recommended next: it decides whether the 5–10 km "false positives" are real.

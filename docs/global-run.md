@@ -12,7 +12,19 @@ conda run -n mercury-craters python -m craters.compare_global    # counts, SFDs,
 | Step | Time | Notes |
 |---|---|---|
 | Render and cache tiles | 263 s | 5,580 tiles, 6 workers. 3.2 GB was already cached from Phase 3, and the run added about 2.4 GB, for ~5.6 GB in total. That is under the 20 GB limit, so tiles are cached, not rendered on the fly. |
-| CNN inference + overlap merge | 170 s | 54,598 detections after merging |
+| CNN inference + overlap merge | 164 s | 38,462 detections after merging (54,598 before the twin fix) |
+
+**Twin fix (2026-11-03).** The first run gave 54,598 detections, and 61% of them sat in
+side-by-side same-size pairs, mostly east-west, against 3.9% in the catalog. The CNN often marked
+one crater twice: a second, weaker circle ~0.8 D west of the real one. Decoding now drops a weaker
+circle within 1 D of a stronger one of similar size, and the tile merge uses the same rule
+(phase3-notes.md §3.3c). Same weights and cutoff. The rerun has 38,462 detections, 0.5% of them in
+such pairs; the old file is kept in `data/detections_pre_twinfix/`. Every number below is from the
+rerun, with the old value in brackets where it matters.
+- The fly-over video (`python -m craters.video`) was rendered before the fix. Its captions quote
+  no affected numbers, but its orange circles include the twins, so it needs re-rendering.
+- The rerun's 0.5% pair rate is below the catalog's 3.9%. Of two genuinely overlapping same-size
+  craters, the weaker is now dropped.
 
 **Outputs:**
 - `data/detections/global_cnn_reg_f2.parquet` (lon, lat, diameter_km, score, level, n_tiles, tile_id);
@@ -37,8 +49,8 @@ Coverage check (random points over the sphere, densest near the poles and the 60
 - On average a point lies in 2.2 fine tiles. At the poles, at most 7 fine tiles meet. That is
   modest duplication, and the overlap merge removes it.
 
-As a check, the global run puts **4,598** detections in T1–T3, against 4,599 from the Phase 3
-test run. Raw F1 there, 0.494, is identical.
+As a check, the global run puts **3,092** detections in T1–T3, the same as the Phase 3 test run.
+Raw F1 there is 0.617 (0.618 in the Phase 3 scoring, which matches T1–T3 on its own).
 
 ## Headline numbers (D ≥ 5 km)
 
@@ -46,19 +58,19 @@ test run. Raw F1 there, 0.494, is identical.
 
 | Diameter bin | Thesis catalog | CNN | CNN / catalog |
 |---|---:|---:|---:|
-| 5–10 km | 9,304 | 40,930 | 4.4 |
-| 10–20 km | 6,710 | 8,217 | 1.22 |
-| 20–50 km | 3,685 | 4,500 | 1.22 |
-| ≥ 50 km | 692 | 951 | 1.37 |
-| **All ≥ 5 km** | **20,391** | **54,598** | **2.7** |
+| 5–10 km | 9,304 | 26,226 | **2.82** (was 4.4) |
+| 10–20 km | 6,710 | 7,045 | **1.05** (was 1.22) |
+| 20–50 km | 3,685 | 4,260 | 1.16 (was 1.22) |
+| ≥ 50 km | 692 | 931 | 1.35 (was 1.37) |
+| **All ≥ 5 km** | **20,391** | **38,462** | **1.89** (was 2.7) |
 
 Per latitude band (all ≥ 5 km, catalog → CNN):
-- 60–90°N: 866 → 2,549
-- 30–60°N: 3,546 → 9,624
-- 0–30°N: 6,138 → 16,985
-- 0–30°S: 5,891 → 15,240
-- 30–60°S: 3,282 → 8,342
-- 60–90°S: 668 → 1,858
+- 60–90°N: 866 → 1,842
+- 30–60°N: 3,546 → 6,939
+- 0–30°N: 6,138 → 11,702
+- 0–30°S: 5,891 → 10,568
+- 30–60°S: 3,282 → 5,950
+- 60–90°S: 668 → 1,461
 
 The full table is in `outputs/global/counts_by_bin.csv`.
 
@@ -72,14 +84,14 @@ Whole-planet cumulative ratio, CNN / catalog, N(≥D):
 
 | D (km) | 5.7 | 8 | 11.3 | 16 | 22.6 | 32 | 45 | 64 | 91 | 128 | 181 |
 |---|---|---|---|---|---|---|---|---|---|---|---|
-| ratio | 2.45 | 1.64 | 1.12 | 1.16 | 1.30 | 1.72 | 1.41 | 1.23 | 0.93 | 0.80 | 0.63 |
+| ratio | 1.67 | 1.21 | 1.06 | 1.11 | 1.23 | 1.64 | 1.38 | 1.20 | 0.92 | 0.79 | 0.60 |
 
 **Where the curves agree and where they diverge:**
-- **11–23 km: they agree** within 12–30%. The two counts are independent, so this is the
+- **11–23 km: they agree** within 6–23%. The two counts are independent, so this is the
   cleanest test that the detector reproduces the catalog's population.
-- **Below ~10 km the CNN climbs steeply:** 2.5× at N(≥5.7 km). The catalog's cumulative curve
+- **Below ~10 km the CNN climbs steeply:** 1.7× at N(≥5.7 km) (2.5× before the twin fix). The catalog's cumulative curve
   flattens there and the CNN's does not. Which reading is right is open; see Caveat 1.
-- **Bump near 30–45 km (ratio 1.4–1.7):** this is where the fine level (≤ 40 km) and coarse level
+- **Bump near 30–45 km (ratio 1.4–1.6):** this is where the fine level (≤ 40 km) and coarse level
   (≥ 30 km) overlap. Some craters probably survive as two detections whose diameters differ by more
   than the 1.33 merge ratio. Terraced rims and nested rings are other likely causes. This bump is
   probably a detector artefact, not a real excess.
@@ -112,18 +124,21 @@ a false positive, including the real uncatalogued craters that the T1–T3 revie
 
 | Area | Catalog | CNN | P | R | F1 | R 5–10 | R 10–20 | R 20–50 | R ≥50 |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| **T1–T3 (held out)** | 1,982 | 4,596 | 0.35 | **0.82** | 0.49 | 0.79 | 0.85 | 0.88 | 0.85 |
-| V1 (checkpoint selection) ⚠ | 487 | 1,198 | 0.36 | 0.89 | 0.52 | 0.88 | 0.93 | 0.89 | 0.88 |
-| train (labels seen) ⚠ | 11,792 | 30,277 | 0.32 | 0.83 | 0.47 | 0.81 | 0.84 | 0.88 | 0.98 |
-| other, \|lat\| < 60° (not trained) | 4,596 | 14,117 | 0.25 | 0.77 | 0.38 | 0.71 | 0.77 | 0.84 | 0.90 |
-| polar, \|lat\| ≥ 60° (not trained) | 1,534 | 4,410 | 0.18 | 0.52 | 0.27 | 0.39 | 0.44 | 0.60 | 0.87 |
-| whole planet | 20,391 | 54,598 | 0.30 | 0.80 | 0.43 | 0.77 | 0.79 | 0.83 | 0.93 |
+| **T1–T3 (held out)** | 1,982 | 3,090 | 0.51 | **0.79** | 0.62 | 0.75 | 0.83 | 0.86 | 0.82 |
+| V1 (checkpoint selection) ⚠ | 487 | 847 | 0.49 | 0.85 | 0.62 | 0.84 | 0.89 | 0.82 | 0.88 |
+| train (labels seen) ⚠ | 11,792 | 21,073 | 0.44 | 0.79 | 0.57 | 0.75 | 0.80 | 0.86 | 0.97 |
+| other, \|lat\| < 60° (not trained) | 4,596 | 10,146 | 0.33 | 0.72 | 0.45 | 0.64 | 0.73 | 0.81 | 0.90 |
+| polar, \|lat\| ≥ 60° (not trained) | 1,534 | 3,306 | 0.22 | 0.48 | 0.30 | 0.29 | 0.43 | 0.58 | 0.83 |
+| whole planet | 20,391 | 38,462 | 0.40 | 0.75 | 0.52 | 0.71 | 0.76 | 0.81 | 0.91 |
+
+Before the twin fix, the whole planet was P 0.30 / R 0.80 / F1 0.43, and T1–T3 0.35 / 0.82 / 0.49.
 
 ⚠ **Optimistic rows.** The model was trained on the train labels and its checkpoint was chosen on
 V1, so treat only T1–T3 as a fair estimate.
 
-After the user's T1–T3 review, verdict-adjusted F1 on T1–T3 is 0.81 (0.80 at 5–10 km, 0.86 at
-10–20 km), and 73% of reviewed 5–10 km detections were judged real. See `docs/phase4-notes.md`.
+After the user's T1–T3 review, verdict-adjusted F1 on T1–T3 is 0.80 (0.77 at 5–10 km, 0.89 at
+10–20 km). 56% of the reviewed unmatched 5–10 km detections were judged real; it was 65% before the
+twin fix, because many twins had been marked real. See `docs/phase4-notes.md`.
 No review exists outside T1–T3.
 
 The "other" and "polar" rows fall well below T1–T3. They mix three effects that this run can't
@@ -137,8 +152,8 @@ separate:
 
 ## Caveats
 
-1. **What the 5–10 km excess means is not settled.** The CNN finds 4.4× as many 5–10 km craters as
-   the catalog, and in T1–T3 about three quarters of the reviewed extras were real craters. There
+1. **What the 5–10 km excess means is not settled.** The CNN finds 2.8× as many 5–10 km craters as
+   the catalog, and in T1–T3 a little over half of the reviewed extras were real craters. There
    are two readings, and this run can't choose between them:
    - **The catalog is incomplete below ~10 km.** On this reading, the CNN is filling in a real
      population that a year of hand mapping at ~250 m/px didn't reach.
@@ -151,9 +166,9 @@ separate:
    **The author's recollection (2026-11-03) supports the second reading:** the thesis was strict,
    counting only craters with clearly defined rims, which are hard to see for small degraded
    craters. The T1–T3 review asked a looser question ("is this a real crater of about this
-   size?"), so its 73% "real" rate measures something broader than the thesis criterion.
-2. **Precision outside T1–T3 is unreviewed.** In T1–T3 the review found that 73% of reviewed
-   5–10 km detections were real. That rate may not hold at the poles or in the excluded stripes,
+   size?"), so its "real" rate measures something broader than the thesis criterion.
+2. **Precision outside T1–T3 is unreviewed.** In T1–T3 the review found that 56% of reviewed
+   unmatched 5–10 km detections were real. That rate may not hold at the poles or in the excluded stripes,
    where lighting and mosaic quality differ.
 3. **Detection counts are not calibrated crater densities.** No completeness or false-positive
    correction is applied. The 30–45 km bump and the >90 km deficit are known detector effects.

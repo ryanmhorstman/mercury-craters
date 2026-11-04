@@ -18,7 +18,7 @@ Startup takes a few seconds. Settings are under `mapview:` in `config/default.ya
   whole-planet Hungarian match as `craters.compare_global`; the catalog circle is
   solid, the CNN's dashed. **Catalog only** (blue) and **CNN only** (orange) are the
   unmatched ones. Both sets are D ≥ 5 km, so the totals reproduce
-  `outputs/global/` (20,391 catalog, 54,598 CNN).
+  `outputs/global/` (20,391 catalog, 38,462 CNN).
 - Circles are drawn as ellipses widened east-west by 1/cos(latitude), so they
   sit true to size on the equirectangular map. Craters under 1.5 px radius on
   screen are counted but not drawn.

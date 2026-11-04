@@ -139,6 +139,10 @@ detectors:
       fine: 1
       coarse: 2
     eval_every: 4
+    twin_suppression:             # a crater can give a second, weaker heatmap peak ~1.5 radii west (docs/phase3-notes.md)
+      radius_frac: 2.0            # drop a weaker peak centred within this many radii (1 diameter) of a stronger one
+      ratio_min: 0.75             # ...when their radii are this similar. Chosen on V1; tile-overlap merging uses it too
+      ratio_max: 1.33
     score_cutoffs: [0.1, 0.15, 0.2, 0.25, 0.3, 0.35, 0.4, 0.5, 0.6]
 
 registration:
