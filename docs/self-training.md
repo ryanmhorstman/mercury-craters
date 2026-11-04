@@ -107,3 +107,47 @@ is a supplement to the catalog, confirmed by evidence the thesis didn't use,
 whether or not they ever help train the CNN. The rejected models and runs are
 kept, outside git, in `data/models/selftrain_st1_rejected/` and
 `data/models/selftrain_retry_rejected/`.
+
+## DEM scan: big craters neither the catalog nor the CNN has
+
+    python -m craters.demscan       # ~11 min on one CPU core; writes outputs/selftrain/demscan_new.csv
+
+The CNN misses many big, degraded craters with soft rims and smooth floors.
+The thesis didn't count them, so in training the CNN was taught they are "no
+crater", and self-training can't help with craters the CNN never detects.
+`src/craters/demscan.py` therefore uses the bowl check as a detector of its own.
+
+The scan tests circles on a grid over the whole planet: 40 to 400 km in steps
+of 1.15x, with centres 0.2 D apart, 4.8 million circles in all. The best bowl
+among overlapping circles wins, and inner rings are dropped.
+
+The rule is tuned on the train area:
+
+- **Recall:** the share of catalog craters >= 40 km the scan finds.
+- **Known:** the share of scan craters that match a catalog crater or a CNN
+  detection, or are a mis-sized copy of one.
+
+A 28 km crater shows up in the scan as a 40 km circle around it, so those
+copies count as known.
+
+| rim on every azimuth, depth/D >= | train recall | train known |
+|---|---|---|
+| 0.01 (chosen: best recall with known >= 0.8) | 0.76 | 0.81 |
+| 0.02 | 0.68 | 0.82 |
+| 0.03 | 0.42 | 0.86 |
+
+With rims as loose as 75% of azimuths, the scan finds 92% of the catalog's
+>= 40 km craters, so the DEM does see them. The trade-off is precision.
+
+The chosen rule gives **827 scan craters >= 40 km in neither set**
+(`demscan_new.csv`). They are **candidates, not confirmed**. In a random sample
+of 24 from the train area, about half are real degraded craters. The rest are
+shadowed scarps, mosaic seams, rough terrain, or circles drawn round a smaller
+crater.
+
+![24 random scan craters (green in the viewer) in neither the catalog (blue) nor the CNN run (orange)](figures/demscan_sample.png)
+
+The map viewer shows them as "DEM scan candidates", off by default. Turning
+them into training labels would need a better filter first. For example, the
+CNN could be run on these circles at a low score cutoff, and only circles both
+methods support would be kept.

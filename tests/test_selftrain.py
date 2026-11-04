@@ -61,3 +61,24 @@ def test_near_known():
         "diameter_km": [50.0, 40.0, 40.0, 40.0],   # mis-sized copy, inside a basin, round a small crater, new
     })
     assert near_known(detections, catalog).tolist() == [True, True, True, False]
+
+
+def test_scan_centres_spacing():
+    from craters.demscan import scan_centres
+
+    lat, lon = scan_centres(100.0, 0.2, 60)
+    on_equator = np.isclose(lat, lat[np.argmin(np.abs(lat))])
+    spacing_km = 360.0 / on_equator.sum() * np.radians(1) * 2439.4
+    assert 19.0 < spacing_km <= 20.0 and lat.min() == -60
+
+
+def test_merge_keeps_the_best_bowl_and_drops_inner_rings():
+    from craters.demscan import merge
+
+    candidates = pd.DataFrame({
+        "lat": [0.0, 0.1, 0.0, 30.0], "lon": [10.0, 10.0, 10.05, 10.0],
+        "diameter_km": [100.0, 115.0, 40.0, 50.0],          # a crater, a worse copy of it, its inner ring, another crater
+        "rim_frac": [1.0, 0.9, 1.0, 1.0], "depth_ratio": [0.03, 0.02, 0.02, 0.02], "floor_drop": [0.01] * 4,
+    })
+    kept = merge(candidates)
+    assert sorted(kept["diameter_km"]) == [50.0, 100.0]

@@ -50,7 +50,8 @@
   <div class="sub" id="sub">thesis catalog vs CNN</div>
   <div id="categories"></div>
   <div class="note">Counts: crater centres in view, after filters. Matched pairs count once; the dashed circle is the CNN's.
-    “New, DEM-confirmed”: CNN only, ≥ 20 km, with a rimmed bowl in the elevation model.</div>
+    “New, DEM-confirmed”: CNN only, ≥ 20 km, with a rimmed bowl in the elevation model.
+    “DEM scan candidates”: ≥ 40 km bowls in the elevation model that neither set has; about half look real.</div>
 
   <div class="field">
     <div class="head"><span>CNN score cutoff</span><span id="score-value"></span></div>
@@ -77,6 +78,7 @@ const CATEGORIES = [
   { key: "catalog_only", label: "Catalog only" },
   { key: "cnn_only", label: "CNN only" },
   { key: "dem_new", label: "New, DEM-confirmed" },
+  { key: "dem_scan", label: "DEM scan candidates" },
 ];
 const MARKS = { real: "✓", not_real: "✗", unsure: "?" };
 
@@ -106,10 +108,11 @@ async function main() {
     }
     return Object.assign(set, { n, rLat, rLon, category: new Array(n) });
   }
-  const cat = prepare(data.catalog), cnn = prepare(data.cnn);
+  const cat = prepare(data.catalog), cnn = prepare(data.cnn), scan = prepare(data.scan);
+  scan.category.fill("dem_scan");
 
   // ---------------------------------------------------------- filters -> category per crater ("" = hidden)
-  const show = { matched: true, catalog_only: true, cnn_only: true, dem_new: true };
+  const show = { matched: true, catalog_only: true, cnn_only: true, dem_new: true, dem_scan: false };
   const state = { score: cfg.score_slider[0], minD: 5, verdicts: true };
   function categorise() {
     for (let j = 0; j < cnn.n; j++) {
@@ -163,6 +166,7 @@ async function main() {
       ctx.globalAlpha = 0.9;
       for (let i = 0; i < cat.n; i++) if (visible(cat, i)) draw(cat, i, false);
       for (let j = 0; j < cnn.n; j++) if (visible(cnn, j)) draw(cnn, j, cnn.category[j] === "matched");
+      for (let k = 0; k < scan.n; k++) if (visible(scan, k)) draw(scan, k, false);
       return tile;
     },
   });
@@ -190,7 +194,7 @@ async function main() {
   for (const { key, label } of CATEGORIES) {
     const row = document.createElement("div");
     row.className = "row";
-    row.innerHTML = `<label><input type="checkbox" checked data-key="${key}">
+    row.innerHTML = `<label><input type="checkbox" ${show[key] ? "checked" : ""} data-key="${key}">
       <span class="swatch" style="border-color:${cfg.colors[key]}"></span>${label}</label><span class="count"></span>`;
     counts[key] = row.querySelector(".count");
     row.querySelector("input").addEventListener("change", e => { show[key] = e.target.checked; redraw(); });
@@ -211,11 +215,12 @@ async function main() {
 
   // ---------------------------------------------------------- live counts of crater centres in view
   function updateCounts() {
-    const b = map.getBounds(), n = { matched: 0, catalog_only: 0, cnn_only: 0, dem_new: 0 };
+    const b = map.getBounds(), n = { matched: 0, catalog_only: 0, cnn_only: 0, dem_new: 0, dem_scan: 0 };
     const inView = (set, i) => set.lat[i] >= b.getSouth() && set.lat[i] <= b.getNorth()
                             && [-360, 0, 360].some(s => set.lon[i] + s >= b.getWest() && set.lon[i] + s <= b.getEast());
     for (let i = 0; i < cat.n; i++) if (visible(cat, i) && inView(cat, i)) n[cat.category[i]]++;
     for (let j = 0; j < cnn.n; j++) if (cnn.category[j] !== "matched" && visible(cnn, j) && inView(cnn, j)) n[cnn.category[j]]++;
+    for (let k = 0; k < scan.n; k++) if (visible(scan, k) && inView(scan, k)) n.dem_scan++;
     for (const key in n) counts[key].textContent = show[key] ? n[key].toLocaleString() : "–";
   }
   function redraw() { craters.redraw(); updateCounts(); }
@@ -235,7 +240,16 @@ async function main() {
     let best = null;
     for (let i = 0; i < cat.n; i++) if (hit(cat, i, lat, lon, ppd) && (!best || cat.d[i] < best.d)) best = { set: cat, i, d: cat.d[i] };
     for (let j = 0; j < cnn.n; j++) if (hit(cnn, j, lat, lon, ppd) && (!best || cnn.d[j] < best.d)) best = { set: cnn, i: j, d: cnn.d[j] };
+    for (let k = 0; k < scan.n; k++) if (hit(scan, k, lat, lon, ppd) && (!best || scan.d[k] < best.d)) best = { set: scan, i: k, d: scan.d[k] };
     if (!best) return;
+    if (best.set === scan) {
+      const k = best.i;
+      L.popup().setLatLng(e.latlng).setContent(`<b style="color:${cfg.colors.dem_scan}">DEM scan candidate</b><table>
+        <tr><td>where</td><td>${where(scan, k)}, D ${fmt(scan.d[k], 0)} km</td></tr>
+        <tr><td>DEM</td><td>rim all round, depth/D ${fmt(scan.depth[k], 3)}</td></tr>
+        <tr><td></td><td>in neither the catalog nor the CNN run</td></tr></table>`).openOn(map);
+      return;
+    }
     let c = null, d = null;
     if (best.set === cat) { c = best.i; if (cat.category[c] === "matched") d = cat.partner[c]; }
     else { d = best.i; if (cnn.category[d] === "matched") c = cnn.partner[d]; }

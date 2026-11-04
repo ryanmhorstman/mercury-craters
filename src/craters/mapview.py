@@ -7,7 +7,9 @@ picks the overview level), and the crater sets as one JSON document. Craters
 are labelled matched / catalog only / CNN only by the same whole-planet
 Hungarian match as compare_global; CNN-only craters that passed the DEM bowl
 check (outputs/selftrain/new_craters.csv, see docs/self-training.md) get a
-category of their own. The page re-derives categories when the
+category of their own, and big craters found by the DEM scan alone
+(outputs/selftrain/demscan_new.csv: in neither set; about half look real) are a
+separate layer, off by default. The page re-derives categories when the
 score cutoff is raised: a matched pair whose detection falls below the cutoff
 becomes catalog only (an approximation: matching is not re-run at each cutoff).
 
@@ -111,6 +113,14 @@ def dem_confirmed(detections, path):
     return flag
 
 
+def scan_set(path):
+    """DEM-scan craters in neither the catalog nor the CNN run (craters.demscan), or an empty set."""
+    scan = pd.read_csv(path) if path.exists() else pd.DataFrame(columns=["lat", "lon", "diameter_km", "depth_ratio"])
+    return {"lat": scan["lat"].round(4).tolist(), "lon": scan["lon"].round(4).tolist(),
+            "d": scan["diameter_km"].round(1).tolist(), "depth": scan["depth_ratio"].round(3).tolist(),
+            "verdict": [""] * len(scan)}       # never reviewed; the page draws verdict marks for every set
+
+
 def crater_sets(cfg):
     """Catalog and detections >= the minimum diameter, each with its match partner, any review verdict
     and (detections) whether the DEM check confirmed it as a crater missing from the catalog."""
@@ -139,6 +149,7 @@ def crater_sets(cfg):
         "cnn": columns(det, {"score": det["score"].round(3).tolist(), "level": det["level"].tolist(),
                              "partner": det["matched_cat"].tolist(), "verdict": det_verdict,
                              "dem": dem_confirmed(det, cfg["paths"]["selftrain"] / "new_craters.csv").tolist()}),
+        "scan": scan_set(cfg["paths"]["selftrain"] / "demscan_new.csv"),
     }
 
 

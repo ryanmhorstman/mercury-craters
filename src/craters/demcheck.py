@@ -22,6 +22,7 @@ Below ~20 km the DEM can't tell catalog craters from decoys at all (its
 effective resolution is much coarser than its 665 m pixels), so the bands start at 20 km.
 """
 import json
+import warnings
 
 import numpy as np
 import pandas as pd
@@ -60,35 +61,42 @@ class Dem:
 
 
 def polar_grid(lat, lon, radius_km, fractions, azimuths):
-    """Lat/lon of points at radius fraction x azimuth around one centre, shape (n_frac, n_az)."""
-    lat1, lon1 = np.radians(lat), np.radians(lon)
-    delta = np.outer(fractions, np.ones_like(azimuths)) * radius_km * 1000.0 / MERCURY_RADIUS_M
+    """Lat/lon of points at radius fraction x azimuth around each centre, shape (..., n_frac, n_az).
+
+    lat, lon and radius_km may be scalars (one centre) or arrays of centres."""
+    lat1, lon1 = np.radians(lat)[..., None, None], np.radians(lon)[..., None, None]
+    radius = np.asarray(radius_km, dtype=float)[..., None, None]
+    delta = np.outer(fractions, np.ones_like(azimuths)) * radius * 1000.0 / MERCURY_RADIUS_M
     theta = np.outer(np.ones_like(fractions), azimuths)
     lat2 = np.arcsin(np.sin(lat1) * np.cos(delta) + np.cos(lat1) * np.sin(delta) * np.cos(theta))
     lon2 = lon1 + np.arctan2(np.sin(theta) * np.sin(delta) * np.cos(lat1), np.cos(delta) - np.sin(lat1) * np.sin(lat2))
     return np.degrees(lat2), np.degrees(lon2)
 
 
-def bowl_features(dem, lat, lon, diameter_km, params):
-    """depth_ratio, rim_frac and floor_drop for each circle (NaN where the DEM has gaps)."""
-    fractions = np.arange(0.0, 2.0001, 0.05)
+def bowl_features(dem, lat, lon, diameter_km, params, chunk=2000):
+    """depth_ratio, rim_frac and floor_drop for each circle (NaN where the DEM has gaps).
+
+    params.radial_step (default 0.05 radii) and params.azimuths set the sampling grid."""
+    fractions = np.arange(0.0, 2.0001, params.get("radial_step", 0.05))
     azimuths = np.linspace(0, 2 * np.pi, params["azimuths"], endpoint=False)
     floor_zone, rim_zone, out_zone = fractions <= 0.4, (fractions >= 0.8) & (fractions <= 1.2), fractions >= 1.6
-    rows = []
-    for la, lo, d in zip(np.asarray(lat), np.asarray(lon), np.asarray(diameter_km)):
-        grid_lat, grid_lon = polar_grid(la, lo, d / 2.0, fractions, azimuths)
-        z = dem.sample(grid_lat, grid_lon)
-        if np.isnan(z).mean() > 0.05:
-            rows.append((np.nan, np.nan, np.nan))
-            continue
-        d_m = d * 1000.0
-        floor = np.nanmedian(z[floor_zone])
-        rim = np.nanmax(z[rim_zone], axis=0)                  # per azimuth
-        outside = np.nanmedian(z[out_zone])
-        rows.append(((np.median(rim) - floor) / d_m,
-                     float(np.mean(rim - floor >= params["rim_min_frac"] * d_m)),
-                     (outside - floor) / d_m))
-    return pd.DataFrame(rows, columns=["depth_ratio", "rim_frac", "floor_drop"])
+    lat, lon, diameter_km = (np.asarray(v, dtype=float) for v in (lat, lon, diameter_km))
+    out = np.full((len(lat), 3), np.nan)
+    for s in range(0, len(lat), chunk):
+        part = slice(s, s + chunk)
+        z = dem.sample(*polar_grid(lat[part], lon[part], diameter_km[part] / 2.0, fractions, azimuths))
+        d_m = diameter_km[part, None] * 1000.0
+        with np.errstate(invalid="ignore"), warnings.catch_warnings():
+            warnings.simplefilter("ignore", RuntimeWarning)        # all-NaN slices, dropped below anyway
+            floor = np.nanmedian(z[:, floor_zone].reshape(len(z), -1), axis=1)[:, None]
+            rim = np.nanmax(z[:, rim_zone], axis=1)                # per azimuth
+            outside = np.nanmedian(z[:, out_zone].reshape(len(z), -1), axis=1)[:, None]
+            features = np.column_stack([(np.median(rim, axis=1)[:, None] - floor)[:, 0] / d_m[:, 0],
+                                        np.mean(rim - floor >= params["rim_min_frac"] * d_m, axis=1),
+                                        (outside - floor)[:, 0] / d_m[:, 0]])
+        features[np.isnan(z).reshape(len(z), -1).mean(axis=1) > 0.05] = np.nan
+        out[part] = features
+    return pd.DataFrame(out, columns=["depth_ratio", "rim_frac", "floor_drop"])
 
 
 def passes(features, rule):
