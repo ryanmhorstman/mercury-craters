@@ -5,10 +5,12 @@
     python -m craters.phase3 cnn             # train (~1 h on an RTX 3060 Ti), then run
     python -m craters.phase3 cnn --skip-training --model cnn_reg   # re-run a saved model on T1-T3
     python -m craters.phase3 global          # run the chosen CNN over the whole planet
+    python -m craters.phase3 finetune-coarse # coarse-level copy of the CNN, tuned for big craters
 
 Writes data/detections/<detector>.parquet for Phase 2 to score, and the
 tuning record to outputs/phase3/. The global run writes
-data/detections/global_<model_name>.parquet; see docs/global-run.md.
+data/detections/global_<run name>.parquet (the model name, plus any
+detectors.cnn.level_models); see docs/global-run.md.
 """
 import argparse
 import json
@@ -16,7 +18,7 @@ import time
 
 import pandas as pd
 
-from .config import load_config
+from .config import load_config, run_name
 from .detect import detect_on_tiles, load_tile_image, run_detector, tiles_covering
 from .detectors import hough
 from .metrics import evaluate
@@ -132,7 +134,7 @@ def global_tiles(cfg):
 
 def run_global(cfg):
     """Run the chosen CNN over every tile on the planet; same levels, merging and cutoff as T1-T3."""
-    from .detectors.cnn import Detector, overlap_rule
+    from .detectors.cnn import build_detector, overlap_rule
 
     params = cfg["detectors"]["cnn"]
     models, name = cfg["paths"]["models"], params["model_name"]
@@ -143,18 +145,17 @@ def run_global(cfg):
     cache_tile_rows(tiles)          # ~5.6 GB in total; tiles already cached are just checked
     render_s = time.time() - start
 
-    print(f"detecting with {name} (epoch {best['epoch']}, score >= {best['score_cutoff']})", flush=True)
+    print(f"detecting with {run_name(params)} (epoch {best['epoch']}, score >= {best['score_cutoff']})", flush=True)
     start = time.time()
-    twins = params["twin_suppression"]
-    detector = Detector(models / f"{name}_best.pt", params["level_downsample"], min_score=best["score_cutoff"], twins=twins)
-    detections = detect_on_tiles(detector, tiles, cfg, progress=True, merge=overlap_rule(cfg["match"], twins))
+    detector = build_detector(params, models, min_score=best["score_cutoff"])
+    detections = detect_on_tiles(detector, tiles, cfg, progress=True, merge=overlap_rule(cfg["match"], params["twin_suppression"]))
     detect_s = time.time() - start
 
     columns = ["lon", "lat", "diameter_km", "score", "level", "n_tiles", "tile_id"]
-    out = cfg["paths"]["detections"] / f"global_{name}.parquet"
+    out = cfg["paths"]["detections"] / f"global_{run_name(params)}.parquet"
     out.parent.mkdir(parents=True, exist_ok=True)
     detections[columns].to_parquet(out, index=False)
-    timing = {"model": name, "tiles": len(tiles), "detections": len(detections),
+    timing = {"model": run_name(params), "tiles": len(tiles), "detections": len(detections),
               "render_s": round(render_s), "detect_and_merge_s": round(detect_s)}
     cfg["paths"]["global"].mkdir(parents=True, exist_ok=True)
     (cfg["paths"]["global"] / "run_timing.json").write_text(json.dumps(timing, indent=2))
@@ -163,7 +164,7 @@ def run_global(cfg):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("detector", choices=["hough", "cnn", "cache-tiles", "global"])
+    parser.add_argument("detector", choices=["hough", "cnn", "cache-tiles", "global", "finetune-coarse"])
     parser.add_argument("--skip-training", action="store_true", help="cnn: reuse the saved best checkpoint")
     parser.add_argument("--model", help="cnn: model name instead of detectors.cnn.model_name (e.g. to re-run an older model)")
     args = parser.parse_args()
@@ -178,6 +179,9 @@ def main():
         cache_tiles(cfg, ["train", "V1"])
     elif args.detector == "global":
         run_global(cfg)
+    elif args.detector == "finetune-coarse":
+        from .train_cnn import finetune_coarse
+        finetune_coarse(cfg)
 
 
 if __name__ == "__main__":

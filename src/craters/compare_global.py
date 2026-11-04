@@ -23,7 +23,7 @@ import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
 from matplotlib.colors import LinearSegmentedColormap  # noqa: E402
 
-from .config import load_config  # noqa: E402
+from .config import load_config, run_name  # noqa: E402
 from .geo import MERCURY_RADIUS_M  # noqa: E402
 from .metrics import bin_labels, label_outcomes, score  # noqa: E402
 from .regions import assign_split  # noqa: E402
@@ -54,8 +54,9 @@ def band_label(band):
     return f"{fmt(lo)}–{fmt(hi)}"
 
 
-def load(cfg):
-    name = cfg["detectors"]["cnn"]["model_name"]
+def load(cfg, calibrated=False):
+    """calibrated: the run after `python -m craters.calibrate` (diameter correction + per-size cutoffs)."""
+    name = run_name(cfg["detectors"]["cnn"]) + ("_calibrated" if calibrated else "")
     detections = pd.read_parquet(cfg["paths"]["detections"] / f"global_{name}.parquet")
     catalog = pd.read_parquet(cfg["paths"]["catalog_registered_labels"])
     return name, catalog, detections
@@ -254,10 +255,16 @@ def match_by_area(catalog, detections, cfg):
 
 
 def main():
+    import argparse
+
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--calibrated", action="store_true",
+                        help="compare the calibrated run (python -m craters.calibrate); outputs go to outputs/global/calibrated/")
+    args = parser.parse_args()
     cfg = load_config()
-    out = cfg["paths"]["global"]
+    out = cfg["paths"]["global"] / ("calibrated" if args.calibrated else "")
     out.mkdir(parents=True, exist_ok=True)
-    name, catalog, detections = load(cfg)
+    name, catalog, detections = load(cfg, args.calibrated)
     min_d = cfg["evaluation"]["diameter_bins_km"][0]
     catalog = catalog[catalog["diameter_km"] >= min_d].reset_index(drop=True)
     detections = detections[detections["diameter_km"] >= min_d].reset_index(drop=True)
@@ -281,8 +288,11 @@ def main():
     plot_counts(wide, cfg, out / "counts_by_bin.png")
     plot_density(catalog, detections, cfg, out / "density_maps.png").to_csv(out / "density_cells.csv", index=False)
 
+    if args.calibrated:
+        print(f"figures in {out}")
+        return
     # Same tiles and cutoff as the Phase 3 test run, so T1-T3 should reproduce it.
-    test = pd.read_parquet(cfg["paths"]["detections"] / f"{name}.parquet")
+    test = pd.read_parquet(cfg["paths"]["detections"] / f"{cfg['detectors']['cnn']['model_name']}.parquet")
     in_test = np.isin(assign_split(detections["lat"], detections["lon"], cfg["regions"]), list(cfg["regions"]["test"]))
     test_in = np.isin(assign_split(test["lat"], test["lon"], cfg["regions"]), list(cfg["regions"]["test"]))
     check = {"global_run_T1_T3": int(in_test.sum()), "phase3_run_T1_T3": int(test_in.sum())}

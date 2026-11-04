@@ -17,3 +17,9 @@ def load_config(path=None):
 def resolve(path):
     path = Path(path)
     return path if path.is_absolute() else REPO_ROOT / path
+
+
+def run_name(params):
+    """Name of a global run: the CNN model, plus any per-level replacement (detectors.cnn.level_models)."""
+    extra = "".join(f"+{level}-{name}" for level, name in (params.get("level_models") or {}).items())
+    return params["model_name"] + extra

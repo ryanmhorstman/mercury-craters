@@ -228,3 +228,23 @@ class Detector:
         circles = decode(output, self.min_score, twins=self.twins)
         circles[["col", "row", "radius_px"]] *= f
         return circles
+
+
+class LevelDetector:
+    """Dispatches each tile to the detector for its level, falling back to a default."""
+
+    def __init__(self, default, by_level):
+        self.default, self.by_level = default, by_level
+
+    def __call__(self, image, tile, level_cfg):
+        return self.by_level.get(tile.level, self.default)(image, tile, level_cfg)
+
+
+def build_detector(params, models_dir, min_score):
+    """The configured model, with per-level replacements from detectors.cnn.level_models."""
+    def one(name):
+        return Detector(models_dir / f"{name}_best.pt", params["level_downsample"], min_score=min_score,
+                        twins=params["twin_suppression"])
+
+    by_level = {level: one(name) for level, name in (params.get("level_models") or {}).items()}
+    return LevelDetector(one(params["model_name"]), by_level) if by_level else one(params["model_name"])

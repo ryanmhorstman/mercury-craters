@@ -305,6 +305,45 @@ What it shows:
 - The older models gain in adjusted F1, because ghost items proposed only by `cnn_reg_f2` no longer
   count as craters they missed.
 
+## 3.3e Large craters: what didn't work, and calibration (2026-11-04)
+
+In the global run, 33 of the 235 catalog craters ≥ 90 km had no match. A contact sheet of all 33
+showed two kinds of miss:
+- **Found but drawn too small** (most). In peak-ring basins (Rodin, Scarlatti, Boethius) the CNN
+  circles the inner ring. Elsewhere (Homer, for example) it circles a ring at ~0.7 D, which fails the
+  0.75 ratio rule.
+- **Not found at all.** These are the most degraded basins (Mendelssohn, several at 160–170 km).
+
+Three attempts to close the gap:
+1. **A lower coarse cutoff** (0.05 instead of 0.15). The missed basins are not sitting just below
+   threshold: recall at 130–200 km went only from 54 to 58 of 66, while precision for ≥ 40 km
+   detections fell from 0.61 to 0.45.
+2. **A third, very coarse level** (2.66 km/px, 768 px tiles with 1,022 km overlap), using the same
+   weights. With the 2× shrink, a 200 km crater is ~38 px, a size the model handles at other levels.
+   Combined with the coarse level, it added only 4–6 craters ≥ 90 km and cost a lot of precision.
+   The model doesn't recognize these basins at any scale. The experiment was dropped and not added
+   to the tiling.
+3. **A coarse-only fine-tune** (`phase3 finetune-coarse` → `cnn_reg_f2_coarse_ft`). This was 10
+   epochs at lr 1e-4, with tiles holding craters ≥ 80 km sampled more often
+   (`detectors.cnn.coarse_finetune`). It improved recall and precision *in the training area*
+   (≥ 200 km 9/12 → 12/12, coarse precision 0.59 → 0.75). Everywhere else it was slightly *worse*:
+   recall at 90–130 km went from 132/147 to 124/147. That is memorizing the training basins, not
+   learning; the training area holds only ~40 craters ≥ 130 km. It is left switched off
+   (`detectors.cnn.level_models: {}`). The plumbing stays, so a better-trained coarse model can be
+   dropped in.
+
+**What did help: calibration** (`python -m craters.calibrate`; details in `docs/global-run.md`).
+- A per-level diameter correction, fitted on train + V1 matches. It recovers the "drawn ~7% small"
+  share of the big misses.
+- Per-size score cutoffs, chosen on V1 F1, bring the run closer to the thesis's strict defined-rim
+  criterion.
+
+T1–T3 F1 goes from 0.618 to 0.674, and catalog recall ≥ 50 km stays at ~0.92.
+
+The remaining large-crater gap needs more big-crater training examples than the training area
+holds. One route is labelling ≥ 50 km craters in the excluded areas: they were left out of training
+for thin *small*-crater coverage, which shouldn't affect big craters.
+
 ## Next
 
 - Phase 4 adjudication. Recommended next: it decides whether the 5–10 km "false positives" are real.

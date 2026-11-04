@@ -7,7 +7,56 @@ result with that catalog.
 ```
 conda run -n mercury-craters python -m craters.phase3 global     # tiles + detection, ~7 min
 conda run -n mercury-craters python -m craters.compare_global    # counts, SFDs, maps, matching, ~1 min
+conda run -n mercury-craters python -m craters.calibrate         # catalog-like version of the run (below)
+conda run -n mercury-craters python -m craters.compare_global --calibrated   # -> outputs/global/calibrated/
 ```
+
+## Calibrated run: closer to the thesis catalog (2026-11-04)
+
+The raw run below is tuned for recall: one score cutoff (0.15, chosen on V1 F2) for every size. The
+thesis counted only craters with clearly defined rims. `python -m craters.calibrate` adjusts the run
+towards that definition, fitting both steps without looking at T1–T3:
+
+1. **Diameter correction per level**, from matched pairs in the train and V1 areas:
+   - The fine level draws craters up to 9% small; the largest correction is at ~12 km.
+   - The coarse level draws ≥ 70 km craters 6–7% small.
+   - Detections are scaled by the median ratio, interpolated in log D.
+2. **Score cutoff by size**, the best V1 F1 within each diameter band:
+   - 0.20 for 5–10 km and 0.15 above.
+   - Bands with fewer than 50 V1 craters (≥ 40 km) keep the run's own cutoff.
+
+Thresholds are in `config/default.yaml` under `calibration`. The fitted values are in
+`outputs/global/calibration.json`.
+
+| | Raw | Calibrated |
+|---|---:|---:|
+| Detections ≥ 5 km | 38,462 | 26,558 |
+| T1–T3 P / R / F1 | 0.51 / 0.79 / 0.618 | 0.67 / 0.68 / **0.674** |
+| T1–T3 F1 at 5–10 / 10–20 / 20–50 / ≥ 50 km | 0.51 / 0.83 / 0.80 / 0.77 | 0.57 / 0.80 / 0.80 / 0.77 |
+| Whole-planet catalog recall ≥ 50 km | 0.91 | 0.92 |
+
+Whole-planet cumulative ratio, CNN / catalog, N(≥D):
+
+| D (km) | 5.7 | 8 | 11.3 | 16 | 22.6 | 32 | 45 | 64 | 91 | 128 | 181 |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| raw | 1.67 | 1.21 | 1.06 | 1.11 | 1.23 | 1.64 | 1.38 | 1.20 | 0.92 | 0.79 | 0.60 |
+| calibrated | 1.31 | 1.21 | 1.21 | 1.19 | 1.26 | 1.48 | 1.36 | 1.25 | 1.11 | 0.91 | 0.91 |
+
+![Calibrated SFD](figures/sfd_global_calibrated.png)
+
+- **The large-crater deficit is mostly gone** (0.60 → 0.91 at 181 km). Much of it was the CNN drawing
+  big craters ~7% small, so they fell under the size bins.
+- **The calibrated curve sits 1.2–1.5× above the catalog at every size.** Part of that excess lies in
+  the areas where Phase 0 found the catalog thin.
+- **The 30–45 km bump (1.48) is partly a level effect.** The fine level rarely detects craters over
+  25 km, so 22–30 km craters are found by the coarse level, drawn up to ~30% large and counted in
+  the 30–35 km bin. The V1 cutoff search kept 0.15 for 20–40 km, so calibration leaves it in.
+- **Polar areas are now the weakest by far:** F1 0.36, against 0.54 for the other untrained areas.
+  At the poles, recall at 5–10 km is only 0.19. Polar lighting is unlike anything in training, and
+  polar catalog positions were never registered.
+
+What was tried for the large craters and didn't work is in `docs/phase3-notes.md` §3.3e: a lower
+cutoff, a very coarse level, and a coarse-only fine-tune.
 
 | Step | Time | Notes |
 |---|---|---|

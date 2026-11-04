@@ -144,6 +144,26 @@ detectors:
       ratio_min: 0.75             # ...when their radii are this similar. Chosen on V1; tile-overlap merging uses it too
       ratio_max: 1.33
     score_cutoffs: [0.1, 0.15, 0.2, 0.25, 0.3, 0.35, 0.4, 0.5, 0.6]
+    coarse_finetune:              # `phase3 finetune-coarse`: copy of model_name tuned on coarse tiles for big craters
+      model_name: cnn_reg_f2_coarse_ft
+      big_km: 80                  # tile sampling weight = 1 + big_weight x catalog craters >= big_km in the tile
+      big_weight: 1.0
+      epochs: 10
+      samples_per_epoch: 2400
+      lr: 0.0001
+      validation_bins_km: [30, 50, 90, .inf]
+    level_models: {}              # e.g. {coarse: cnn_reg_f2_coarse_ft}: per-level weights for the global run
+
+calibration:
+  # `python -m craters.calibrate`: adjusts the global run towards the thesis catalog
+  # (diameter correction from train + V1 matches, then per-size cutoffs by V1 F1).
+  diameter_bands_km:
+    fine: [5, 7, 10, 14, 20, 25, 30, 40]
+    coarse: [30, 35, 40, 50, 70, 100, 150, 400]
+  min_pairs: 10                 # bands with fewer matched pairs are skipped (the nearest band's ratio applies)
+  cutoff_bands_km: [5, 7, 10, 14, 20, 40, 2000]
+  min_v1_craters: 50            # a band with fewer V1 catalog craters keeps the run's own cutoff
+  score_cutoffs: [0.15, 0.2, 0.25, 0.3, 0.35, 0.4, 0.45, 0.5, 0.6, 0.7]
 
 registration:
   # The catalog sits up to ~7 km north of the same craters on the USGS basemap,
