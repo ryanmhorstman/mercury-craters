@@ -1,4 +1,4 @@
-"""Train the CNN detector on the training split; choose the checkpoint on V1.
+"""Train the CNN detector on the training split; choose the checkpoint on V1 F-beta.
 
 Each training sample is a "view" of a cached tile:
   fine tiles   random 512 px crop at 166 m/px, labelled for 5-40 km craters
@@ -101,8 +101,14 @@ def photometric(image, rng):
     return x * 255.0
 
 
+def f_beta(precision, recall, beta):
+    """F-beta score; beta > 1 weights recall above precision, beta = 1 is F1."""
+    b2 = beta ** 2
+    return (1 + b2) * precision * recall / (b2 * precision + recall) if precision + recall > 0 else 0.0
+
+
 def validate(model, cfg, params, tiles, catalog, images):
-    """End-to-end V1 F1 at each score cutoff, through the same path as the test run."""
+    """End-to-end V1 F1 and F-beta at each score cutoff, through the same path as the test run."""
     model.eval()
     detector = Detector.from_model(model, params["level_downsample"], min_score=min(params["score_cutoffs"]))
     boxes = list(cfg["regions"]["validation"].values())
@@ -111,7 +117,8 @@ def validate(model, cfg, params, tiles, catalog, images):
     for cutoff in params["score_cutoffs"]:
         kept = detections[detections["score"] >= cutoff]
         overall = evaluate(catalog, kept, boxes, cfg["match"], cfg["evaluation"]["diameter_bins_km"])[0].iloc[0]
-        rows.append({"score_cutoff": cutoff, **overall[["TP", "FP", "FN", "precision", "recall", "f1"]].to_dict()})
+        rows.append({"score_cutoff": cutoff, **overall[["TP", "FP", "FN", "precision", "recall", "f1"]].to_dict(),
+                     "fbeta": f_beta(overall["precision"], overall["recall"], params["selection_beta"])})
     model.train()
     return pd.DataFrame(rows)
 
@@ -144,7 +151,7 @@ def train(cfg):
     out_dir = cfg["paths"]["models"]
     out_dir.mkdir(parents=True, exist_ok=True)
     name = params["model_name"]
-    history, best = [], {"f1": -1.0}
+    history, best = [], {"fbeta": -1.0}
     for epoch in range(1, params["epochs"] + 1):
         sampler.epoch = epoch
         start, totals = time.time(), {"loss": 0.0, "heat": 0.0, "offset": 0.0, "logr": 0.0}
@@ -165,16 +172,17 @@ def train(cfg):
 
         if epoch % params["eval_every"] == 0 or epoch == params["epochs"]:
             table = validate(model, cfg, params, tiles, catalog, val_images)
-            top = table.loc[table["f1"].idxmax()]
-            record.update({"v1_f1": top["f1"], "v1_precision": top["precision"], "v1_recall": top["recall"],
+            top = table.loc[table["fbeta"].idxmax()]
+            record.update({"v1_fbeta": top["fbeta"], "v1_f1": top["f1"], "v1_precision": top["precision"], "v1_recall": top["recall"],
                            "v1_cutoff": top["score_cutoff"]})
-            if top["f1"] > best["f1"]:
-                best = {"f1": float(top["f1"]), "epoch": epoch, "score_cutoff": float(top["score_cutoff"])}
+            if top["fbeta"] > best["fbeta"]:
+                best = {"fbeta": float(top["fbeta"]), "beta": params["selection_beta"], "f1": float(top["f1"]),
+                        "epoch": epoch, "score_cutoff": float(top["score_cutoff"])}
                 torch.save({"model": model.state_dict(), "epoch": epoch}, out_dir / f"{name}_best.pt")
         history.append(record)
         print(" ".join(f"{k}={v:.4g}" if isinstance(v, float) else f"{k}={v}" for k, v in record.items()), flush=True)
 
     pd.DataFrame(history).to_csv(out_dir / f"{name}_history.csv", index=False)
     (out_dir / f"{name}_best.json").write_text(json.dumps(best, indent=2))
-    print(f"best V1 F1 {best['f1']:.3f} at epoch {best['epoch']} (score >= {best['score_cutoff']})")
+    print(f"best V1 F{params['selection_beta']:g} {best['fbeta']:.3f} (F1 {best['f1']:.3f}) at epoch {best['epoch']} (score >= {best['score_cutoff']})")
     return best

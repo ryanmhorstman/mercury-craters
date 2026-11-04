@@ -162,11 +162,38 @@ What it shows:
   (±0.05). Epoch 16 had V1 F1 0.589 at a much higher recall (0.77 vs 0.56). For a mapping tool, a
   recall-weighted or verdict-informed selection would probably serve better than raw V1 F1 against
   an incomplete catalog.
-- `config/default.yaml` now points at `cnn_reg`. Set `model_name: cnn` and
+- `config/default.yaml` pointed at `cnn_reg` at this stage. Set `model_name: cnn` and
   `use_registered_labels: false` to get back the original setup.
 
+**Recall-weighted selection: `cnn_reg_f2`.** The checkpoint and cutoff now maximise V1 F-beta
+(`detectors.cnn.selection_beta: 2`; 1 = F1, which is how `cnn` and `cnn_reg` were chosen).
+- **Same training run otherwise** (same seed and labels as `cnn_reg`). F2 picked **epoch 16, score ≥ 0.15**:
+  V1 F2 0.691, F1 0.517, recall 0.89.
+- **It makes 7,348 detections on T1–T3.**
+
+T1–T3, all three models scored in one Phase 4 report (P / R / F1):
+
+| Model | Raw, original catalog: all | Raw, registered: all | Raw, registered: 5–10 | Verdict-adjusted: all | Verdict-adjusted: 5–10 |
+|---|---|---|---|---|---|
+| `cnn` | 0.57 / 0.54 / 0.557 | 0.60 / 0.57 / 0.586 | 0.46 / 0.42 / 0.439 | 0.80 / 0.44 / 0.569 | 0.75 / 0.31 / 0.436 |
+| `cnn_reg` | 0.73 / 0.49 / 0.589 | 0.76 / 0.51 / 0.609 | 0.68 / 0.32 / 0.433 | 0.88 / 0.35 / 0.499 | 0.84 / 0.19 / 0.303 |
+| `cnn_reg_f2` | 0.33 / 0.76 / 0.458 | 0.35 / 0.82 / 0.494 | 0.24 / 0.79 / 0.370 | 0.70 / 0.88 / **0.780** | 0.65 / 0.89 / **0.755** |
+
+What it shows:
+- **Best after the verdicts: `cnn_reg_f2`,** so the config now points at it.
+- **Against the raw catalog it scores worst:** its precision is 35%. Many of its extra detections are
+  craters the catalog lacks, and they count as false positives there.
+- **The adjusted numbers in this table can't be compared with the earlier tables.** Adding a
+  high-recall detector adds many new review items, mostly uncatalogued craters it found. That grows
+  the estimated set of real craters, so the other models' adjusted recall falls (the old `cnn` drops
+  from 0.643 to 0.441).
+- **Caveat: only 214 of 4,599 items are reviewed now.** Most of `cnn_reg_f2`'s extra detections are
+  unreviewed, and their verdicts are extrapolated from the reviewed rate in the same kind × size
+  bin. Before trusting 0.780, run `phase4 build` and review a few hundred more items, chiefly its
+  5–10 km detections.
+
 **For the global run:**
-- Choose which checkpoint to use first. The old `cnn` has the best verdict-adjusted F1.
+- Confirm the checkpoint choice first. `cnn_reg_f2` leads after the verdicts, pending more review.
 - Activate the env (or put `<env>\Library\bin` on PATH): plain `python.exe` without it crashes
   in matplotlib with Windows error 0xc06d007f (a DLL load failure).
 

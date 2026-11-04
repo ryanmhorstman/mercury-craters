@@ -63,3 +63,11 @@ def test_model_output_shapes():
     assert out["heat"].shape == (1, 1, 64, 64)
     assert out["offset"].shape == (1, 2, 64, 64)
     assert out["logr"].shape == (1, 1, 64, 64)
+
+
+def test_f_beta_is_f1_at_beta_1_and_favours_recall_above_it():
+    from craters.train_cnn import f_beta
+
+    assert f_beta(0.6, 0.4, 1) == pytest.approx(2 * 0.6 * 0.4 / 1.0)
+    assert f_beta(0.4, 0.6, 2) > f_beta(0.6, 0.4, 2)
+    assert f_beta(0.0, 0.0, 2) == 0.0
