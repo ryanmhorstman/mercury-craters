@@ -212,6 +212,7 @@ global:
 mapview:
   # Local zoomable map of the global run: python -m craters.mapview
   port: 8766                   # the review app uses 8765
+  calibrated: true             # show the calibrated run (python -m craters.calibrate) instead of the raw one
   tile_px: 256
   max_zoom: 10                 # native resolution is reached near zoom 7.5; above that tiles are upsampled
   stretch_percentiles: [0.5, 99.5]   # basemap contrast, from the coarsest overview at startup
@@ -222,3 +223,4 @@ mapview:
     matched: "#f0e442"
     catalog_only: "#56b4e9"
     cnn_only: "#d55e00"
+    dem_new: "#cc79a7"         # CNN only, but confirmed by the DEM bowl check (docs/self-training.md)

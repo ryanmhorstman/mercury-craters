@@ -5,7 +5,9 @@
 Serves the MDIS basemap as 256 px PNG tiles read on the fly from the COG (GDAL
 picks the overview level), and the crater sets as one JSON document. Craters
 are labelled matched / catalog only / CNN only by the same whole-planet
-Hungarian match as compare_global. The page re-derives categories when the
+Hungarian match as compare_global; CNN-only craters that passed the DEM bowl
+check (outputs/selftrain/new_craters.csv, see docs/self-training.md) get a
+category of their own. The page re-derives categories when the
 score cutoff is raised: a matched pair whose detection falls below the cutoff
 becomes catalog only (an approximation: matching is not re-run at each cutoff).
 
@@ -97,9 +99,22 @@ def detection_verdicts(items, verdicts, detections, max_km):
     return {int(i): verdicts[item] for item, i, d in zip(reviewed["item_id"], idx, dist) if np.isfinite(d)}
 
 
+def dem_confirmed(detections, path):
+    """True for each detection listed in new_craters.csv (same calibrated run, so same positions)."""
+    flag = np.zeros(len(detections), dtype=bool)
+    if not path.exists() or detections.empty:
+        return flag
+    confirmed = pd.read_csv(path)
+    tree = cKDTree(unit_vectors(detections["lat"], detections["lon"]))
+    dist, idx = tree.query(unit_vectors(confirmed["lat"], confirmed["lon"]), distance_upper_bound=km_to_chord(0.05))
+    flag[idx[np.isfinite(dist)]] = True
+    return flag
+
+
 def crater_sets(cfg):
-    """Catalog and detections >= the minimum diameter, each with its match partner and any review verdict."""
-    name, catalog, detections = load(cfg)
+    """Catalog and detections >= the minimum diameter, each with its match partner, any review verdict
+    and (detections) whether the DEM check confirmed it as a crater missing from the catalog."""
+    name, catalog, detections = load(cfg, calibrated=cfg["mapview"]["calibrated"])
     min_d = cfg["evaluation"]["diameter_bins_km"][0]
     catalog = catalog[catalog["diameter_km"] >= min_d]
     detections = detections[detections["diameter_km"] >= min_d]
@@ -122,7 +137,8 @@ def crater_sets(cfg):
         "catalog": columns(cat, {"id": cat["id"].tolist(), "name": cat["name"].fillna("").tolist(),
                                  "partner": cat["matched_det"].tolist(), "verdict": cat_verdict}),
         "cnn": columns(det, {"score": det["score"].round(3).tolist(), "level": det["level"].tolist(),
-                             "partner": det["matched_cat"].tolist(), "verdict": det_verdict}),
+                             "partner": det["matched_cat"].tolist(), "verdict": det_verdict,
+                             "dem": dem_confirmed(det, cfg["paths"]["selftrain"] / "new_craters.csv").tolist()}),
     }
 
 

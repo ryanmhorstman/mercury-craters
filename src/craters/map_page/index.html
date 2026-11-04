@@ -49,7 +49,8 @@
   <h1>Mercury craters</h1>
   <div class="sub" id="sub">thesis catalog vs CNN</div>
   <div id="categories"></div>
-  <div class="note">Counts: crater centres in view, after filters. Matched pairs count once; the dashed circle is the CNN's.</div>
+  <div class="note">Counts: crater centres in view, after filters. Matched pairs count once; the dashed circle is the CNN's.
+    “New, DEM-confirmed”: CNN only, ≥ 20 km, with a rimmed bowl in the elevation model.</div>
 
   <div class="field">
     <div class="head"><span>CNN score cutoff</span><span id="score-value"></span></div>
@@ -75,6 +76,7 @@ const CATEGORIES = [
   { key: "matched", label: "Matched" },
   { key: "catalog_only", label: "Catalog only" },
   { key: "cnn_only", label: "CNN only" },
+  { key: "dem_new", label: "New, DEM-confirmed" },
 ];
 const MARKS = { real: "✓", not_real: "✗", unsure: "?" };
 
@@ -107,12 +109,12 @@ async function main() {
   const cat = prepare(data.catalog), cnn = prepare(data.cnn);
 
   // ---------------------------------------------------------- filters -> category per crater ("" = hidden)
-  const show = { matched: true, catalog_only: true, cnn_only: true };
+  const show = { matched: true, catalog_only: true, cnn_only: true, dem_new: true };
   const state = { score: cfg.score_slider[0], minD: 5, verdicts: true };
   function categorise() {
     for (let j = 0; j < cnn.n; j++) {
       const kept = cnn.score[j] >= state.score;
-      cnn.category[j] = !kept ? "" : cnn.partner[j] >= 0 ? "matched" : "cnn_only";
+      cnn.category[j] = !kept ? "" : cnn.partner[j] >= 0 ? "matched" : cnn.dem[j] ? "dem_new" : "cnn_only";
     }
     for (let i = 0; i < cat.n; i++) {
       const p = cat.partner[i];
@@ -209,11 +211,11 @@ async function main() {
 
   // ---------------------------------------------------------- live counts of crater centres in view
   function updateCounts() {
-    const b = map.getBounds(), n = { matched: 0, catalog_only: 0, cnn_only: 0 };
+    const b = map.getBounds(), n = { matched: 0, catalog_only: 0, cnn_only: 0, dem_new: 0 };
     const inView = (set, i) => set.lat[i] >= b.getSouth() && set.lat[i] <= b.getNorth()
                             && [-360, 0, 360].some(s => set.lon[i] + s >= b.getWest() && set.lon[i] + s <= b.getEast());
     for (let i = 0; i < cat.n; i++) if (visible(cat, i) && inView(cat, i)) n[cat.category[i]]++;
-    for (let j = 0; j < cnn.n; j++) if (cnn.category[j] === "cnn_only" && visible(cnn, j) && inView(cnn, j)) n.cnn_only++;
+    for (let j = 0; j < cnn.n; j++) if (cnn.category[j] !== "matched" && visible(cnn, j) && inView(cnn, j)) n[cnn.category[j]]++;
     for (const key in n) counts[key].textContent = show[key] ? n[key].toLocaleString() : "–";
   }
   function redraw() { craters.redraw(); updateCounts(); }
@@ -242,7 +244,8 @@ async function main() {
     if (c !== null) html += `<tr><td>catalog</td><td>${cat.id[c]}${cat.name[c] ? ` (${cat.name[c]})` : ""}</td></tr>
       <tr><td></td><td>${where(cat, c)}, D ${fmt(cat.d[c], 1)} km</td></tr>${verdictRow(cat.verdict[c])}`;
     if (d !== null) html += `<tr><td>CNN</td><td>${where(cnn, d)}, D ${fmt(cnn.d[d], 1)} km</td></tr>
-      <tr><td></td><td>score ${fmt(cnn.score[d], 3)}, ${cnn.level[d]} tiles</td></tr>${verdictRow(cnn.verdict[d])}`;
+      <tr><td></td><td>score ${fmt(cnn.score[d], 3)}, ${cnn.level[d]} tiles</td></tr>${verdictRow(cnn.verdict[d])}
+      ${cnn.dem[d] ? "<tr><td>DEM</td><td>rimmed bowl: not in the catalog</td></tr>" : ""}`;
     L.popup().setLatLng(e.latlng).setContent(html + "</table>").openOn(map);
   });
 
