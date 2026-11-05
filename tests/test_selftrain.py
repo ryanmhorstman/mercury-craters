@@ -82,3 +82,15 @@ def test_merge_keeps_the_best_bowl_and_drops_inner_rings():
     })
     kept = merge(candidates)
     assert sorted(kept["diameter_km"]) == [50.0, 100.0]
+
+
+def test_best_match_score_takes_the_best_matching_detection():
+    from craters.demscan import best_match_score
+
+    circles = pd.DataFrame({"lat": [0.0, 30.0], "lon": [10.0, 10.0], "diameter_km": [100.0, 100.0]})
+    detections = pd.DataFrame({
+        "lat": [0.2, 0.0, 0.0, 30.0], "lon": [10.0, 10.0, 10.0, 10.0],
+        "diameter_km": [110.0, 100.0, 40.0, 300.0],          # match, better match, too small, too big
+        "score": [0.1, 0.3, 0.9, 0.9],
+    })
+    assert best_match_score(circles, detections).tolist() == [0.3, 0.0]

@@ -147,7 +147,41 @@ crater.
 
 ![24 random scan craters (green in the viewer) in neither the catalog (blue) nor the CNN run (orange)](figures/demscan_sample.png)
 
-The map viewer shows them as "DEM scan candidates", off by default. Turning
-them into training labels would need a better filter first. For example, the
-CNN could be run on these circles at a low score cutoff, and only circles both
-methods support would be kept.
+## Second opinion from the CNN
+
+    python -m craters.demscan --cnn     # + ~10 min on the CPU: adds cnn_score and cnn_ok to demscan_new.csv
+
+The 827 aren't in the calibrated CNN run, but the CNN may still see them faintly.
+The coarse level of `cnn_reg_f2` is re-run over the planet at a score of 0.02
+instead of 0.15, and each scan crater gets the best score of a detection
+matching it.
+
+Decoys measure how often that happens by chance. They are 370 train-area
+catalog circles >= 40 km, moved onto ground the catalog says is empty. Precision is estimated
+conservatively as 1 - (decoy rate x 827) / (number supported), as if all 827
+were false. The cutoff kept is the one supporting the most scan craters with
+that estimate >= 0.85.
+
+| CNN score >= | catalog craters supported | decoys supported | new scan craters supported | precision, lower bound |
+|---|---|---|---|---|
+| **0.02 (chosen)** | 97% | 6.5% | **386** | 0.86 |
+| 0.03 | 97% | 4.6% | 313 | 0.88 |
+| 0.05 | 97% | 3.0% | 193 | 0.87 |
+| 0.10 | 97% | 2.4% | 61 | 0.67 |
+
+The decoy rate is itself an overestimate, since the catalog is missing big
+craters, so some decoys land on real ones.
+
+By eye, all 12 of a random 12 supported scan craters are clear craters, and
+about 21 of 24 with scores of only 0.02-0.03. The CNN only adds evidence. Many
+of the unsupported scan craters look real too, mostly the bigger ones
+(60-120 km), where the coarse level is weakest.
+
+![Top two rows: 12 random scan craters the CNN supports; bottom two: 12 it gives no score at all](figures/demscan_cnn_sample.png)
+
+The map viewer shows these as two layers. **"DEM scan + CNN"** (blue, 386
+craters, on by default) is found by two independent methods, the elevation
+model and the image CNN. It is the most reliable supplement to the catalog
+here for big craters, after the 781 DEM-confirmed CNN craters. **"DEM scan
+only"** (green, 441, off by default) is weaker. Neither has been used for
+training.

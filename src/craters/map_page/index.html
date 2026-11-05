@@ -51,7 +51,8 @@
   <div id="categories"></div>
   <div class="note">Counts: crater centres in view, after filters. Matched pairs count once; the dashed circle is the CNN's.
     “New, DEM-confirmed”: CNN only, ≥ 20 km, with a rimmed bowl in the elevation model.
-    “DEM scan candidates”: ≥ 40 km bowls in the elevation model that neither set has; about half look real.</div>
+    “DEM scan + CNN”: ≥ 40 km bowls in the elevation model that neither set has, which the CNN also sees at a low score (≥ 86% real).
+    “DEM scan only”: the rest of those bowls; the CNN doesn’t see them, and many are not craters.</div>
 
   <div class="field">
     <div class="head"><span>CNN score cutoff</span><span id="score-value"></span></div>
@@ -78,7 +79,8 @@ const CATEGORIES = [
   { key: "catalog_only", label: "Catalog only" },
   { key: "cnn_only", label: "CNN only" },
   { key: "dem_new", label: "New, DEM-confirmed" },
-  { key: "dem_scan", label: "DEM scan candidates" },
+  { key: "dem_scan_cnn", label: "DEM scan + CNN" },
+  { key: "dem_scan", label: "DEM scan only" },
 ];
 const MARKS = { real: "✓", not_real: "✗", unsure: "?" };
 
@@ -109,10 +111,10 @@ async function main() {
     return Object.assign(set, { n, rLat, rLon, category: new Array(n) });
   }
   const cat = prepare(data.catalog), cnn = prepare(data.cnn), scan = prepare(data.scan);
-  scan.category.fill("dem_scan");
+  for (let k = 0; k < scan.n; k++) scan.category[k] = scan.cnn_ok[k] ? "dem_scan_cnn" : "dem_scan";
 
   // ---------------------------------------------------------- filters -> category per crater ("" = hidden)
-  const show = { matched: true, catalog_only: true, cnn_only: true, dem_new: true, dem_scan: false };
+  const show = { matched: true, catalog_only: true, cnn_only: true, dem_new: true, dem_scan_cnn: true, dem_scan: false };
   const state = { score: cfg.score_slider[0], minD: 5, verdicts: true };
   function categorise() {
     for (let j = 0; j < cnn.n; j++) {
@@ -215,12 +217,12 @@ async function main() {
 
   // ---------------------------------------------------------- live counts of crater centres in view
   function updateCounts() {
-    const b = map.getBounds(), n = { matched: 0, catalog_only: 0, cnn_only: 0, dem_new: 0, dem_scan: 0 };
+    const b = map.getBounds(), n = { matched: 0, catalog_only: 0, cnn_only: 0, dem_new: 0, dem_scan_cnn: 0, dem_scan: 0 };
     const inView = (set, i) => set.lat[i] >= b.getSouth() && set.lat[i] <= b.getNorth()
                             && [-360, 0, 360].some(s => set.lon[i] + s >= b.getWest() && set.lon[i] + s <= b.getEast());
     for (let i = 0; i < cat.n; i++) if (visible(cat, i) && inView(cat, i)) n[cat.category[i]]++;
     for (let j = 0; j < cnn.n; j++) if (cnn.category[j] !== "matched" && visible(cnn, j) && inView(cnn, j)) n[cnn.category[j]]++;
-    for (let k = 0; k < scan.n; k++) if (visible(scan, k) && inView(scan, k)) n.dem_scan++;
+    for (let k = 0; k < scan.n; k++) if (visible(scan, k) && inView(scan, k)) n[scan.category[k]]++;
     for (const key in n) counts[key].textContent = show[key] ? n[key].toLocaleString() : "–";
   }
   function redraw() { craters.redraw(); updateCounts(); }
@@ -244,9 +246,11 @@ async function main() {
     if (!best) return;
     if (best.set === scan) {
       const k = best.i;
-      L.popup().setLatLng(e.latlng).setContent(`<b style="color:${cfg.colors.dem_scan}">DEM scan candidate</b><table>
+      const ok = scan.cnn_ok[k];
+      L.popup().setLatLng(e.latlng).setContent(`<b style="color:${cfg.colors[scan.category[k]]}">${ok ? "DEM scan + CNN" : "DEM scan only"}</b><table>
         <tr><td>where</td><td>${where(scan, k)}, D ${fmt(scan.d[k], 0)} km</td></tr>
         <tr><td>DEM</td><td>rim all round, depth/D ${fmt(scan.depth[k], 3)}</td></tr>
+        <tr><td>CNN</td><td>${scan.cnn_score[k] > 0 ? "best score " + fmt(scan.cnn_score[k], 2) : "nothing"}${ok ? "" : " (too low)"}</td></tr>
         <tr><td></td><td>in neither the catalog nor the CNN run</td></tr></table>`).openOn(map);
       return;
     }

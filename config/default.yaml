@@ -193,6 +193,11 @@ selftrain:
     rim_frac_grid: [0.75, 0.83, 0.92, 1.0]
     depth_ratio_grid: [0.01, 0.015, 0.02, 0.03]
     min_known: 0.8              # chosen rule: >= 80% of its train-area craters are in the catalog or the CNN run
+    cnn:                        # `python -m craters.demscan --cnn`: does the CNN, at a low score, see the scan crater too?
+      min_score: 0.02           # coarse level re-run on the CPU at this score
+      score_grid: [0.02, 0.03, 0.05, 0.075, 0.1, 0.15]
+      min_precision: 0.85       # chosen cutoff: the most supported with precision >= this, counting
+                                # false ones as if every new scan crater were false (decoy rate x all)
   # `python -m craters.selftrain` (src/craters/selftrain.py)
   ignore_min_score: 0.5         # unconfirmed non-catalog detections this confident become "ignore", not "no crater"
   max_rounds: 3
@@ -237,4 +242,5 @@ mapview:
     catalog_only: "#56b4e9"
     cnn_only: "#d55e00"
     dem_new: "#cc79a7"         # CNN only, but confirmed by the DEM bowl check (docs/self-training.md)
-    dem_scan: "#009e73"        # found by the DEM scan alone: candidates, about half real
+    dem_scan_cnn: "#0072b2"    # found by the DEM scan, and the CNN agrees at a low score (>= 86% real)
+    dem_scan: "#009e73"        # found by the DEM scan alone; the CNN doesn't see them
