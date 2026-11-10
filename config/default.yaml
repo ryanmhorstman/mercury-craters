@@ -16,6 +16,7 @@ paths:
   catalog: data/processed/catalog.parquet
   catalog_registered: data/processed/catalog_registered.parquet   # north-south corrected copy (Phase 4)
   catalog_registered_labels: data/processed/catalog_registered_labels.parquet   # same, shift field also covering train + V1 (CNN labels only)
+  catalog_supplemented: data/processed/catalog_supplemented.parquet   # thesis + DEM-backed new craters (python -m craters.supplement)
   catalog_duplicates: data/processed/catalog_duplicates.csv
   tiles: data/processed/tiles.parquet
   tiles_global: data/processed/tiles_global.parquet   # tiles + polar caps, for the global run

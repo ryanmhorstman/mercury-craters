@@ -185,3 +185,62 @@ model and the image CNN. It is the most reliable supplement to the catalog
 here for big craters, after the 781 DEM-confirmed CNN craters. **"DEM scan
 only"** (green, 441, off by default) is weaker. Neither has been used for
 training.
+
+## The supplemented catalog (`src/craters/supplement.py`)
+
+    python -m craters.supplement            # build it
+    python -m craters.supplement --score    # score the calibrated global run against both catalogs
+    python -m craters.supplement --score NAME   # ... or any run: data/detections/NAME.parquet
+
+The two sets of DEM-backed craters are folded into one catalog,
+`data/processed/catalog_supplemented.parquet` (also
+`outputs/selftrain/catalog_supplemented.csv`). The thesis files are only read.
+A `source` column says where each crater comes from:
+
+| source | craters | what |
+|---|---|---|
+| `thesis` | 20,662 | the registered thesis catalog, unchanged |
+| `dem_confirmed` | 774 | CNN detections >= 20 km that pass the DEM bowl check |
+| `dem_scan_cnn` | 386 | DEM-scan craters >= 40 km that the CNN supports |
+
+A new crater is dropped when it is the same crater, by the matching rule, as
+one already listed. None of the new craters repeats a thesis crater, and none of
+the scan craters repeats a DEM-confirmed one. 7 of the 781 DEM-confirmed
+detections were the same crater detected twice, which leaves 774. The thesis
+sheet name, called `source` in the other catalog files, is `sheet` here.
+
+491 of the 1,160 new craters lie in the train area, 471 in the areas excluded
+from training, 103 on the polar caps, 67 in T1-T3 and 8 in V1.
+
+### `cnn_reg_f2` against both catalogs
+
+Calibrated global run, craters >= 5 km. P / R / F1; the number of catalog
+craters is in brackets.
+
+| D (km) | V1, thesis | V1, supplemented | T1-T3, thesis | T1-T3, supplemented |
+|---|---|---|---|---|
+| all | 0.61 / 0.76 / **0.678** (487) | 0.62 / 0.76 / **0.682** (495) | 0.68 / 0.68 / **0.675** (1,982) | 0.70 / 0.68 / **0.688** (2,049) |
+| 5-10 | 0.57 / 0.70 / 0.628 (307) | same | 0.59 / 0.55 / 0.567 (1,091) | same |
+| 10-20 | 0.73 / 0.88 / 0.797 (116) | same | 0.77 / 0.82 / 0.797 (564) | same |
+| 20-50 | 0.64 / 0.82 / 0.719 (56) | 0.67 / 0.81 / 0.733 (59) | 0.75 / 0.86 / 0.801 (272) | 0.87 / 0.85 / 0.862 (319) |
+| 50+ | 0.47 / 0.88 / 0.609 (8) | 0.67 / 0.77 / 0.714 (13) | 0.73 / 0.82 / 0.769 (55) | 0.90 / 0.75 / 0.818 (75) |
+
+Per test region, F1 for all sizes goes from 0.615 to 0.626 (T1), 0.721 to
+0.741 (T2) and 0.703 to 0.712 (T3); the full table is
+`outputs/selftrain/scores_global_cnn_reg_f2_calibrated.csv`.
+
+Nothing changes below 20 km, where there are no new craters. From 20 km up,
+precision in T1-T3 rises from 0.75 to 0.87 (20-50 km) and from 0.73 to 0.90
+(50+ km): about half of what counted as false detections there are craters the
+DEM confirms. Recall falls at 50+ km (0.82 to 0.75), because the scan craters
+are ones the CNN run missed.
+
+Two cautions when reading the supplemented columns:
+
+- The `dem_confirmed` craters are detections of `cnn_reg_f2` itself, so this
+  model finds all of them by construction. The precision gain is real, but a
+  different model would not get those matches for free. Comparisons between
+  models are fair on the thesis catalog, and tilted towards `cnn_reg_f2` on the
+  supplemented one.
+- V1 has only 8 new craters, so its supplemented scores barely differ, and its
+  50+ km bin (8 and 13 craters) is too small to read.
