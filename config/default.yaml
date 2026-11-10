@@ -147,6 +147,9 @@ detectors:
       fine: 1
       coarse: 2
     eval_every: 4
+    ema:                          # average the weights over training; validate and save the average
+      enabled: false              # on for the retrains of craters.retrain (docs/self-training.md)
+      decay: 0.999                # per step: averages over roughly the last 1,000 steps (2.5 epochs)
     twin_suppression:             # a crater can give a second, weaker heatmap peak ~1.5 radii west (docs/phase3-notes.md)
       radius_frac: 2.0            # drop a weaker peak centred within this many radii (1 diameter) of a stronger one
       ratio_min: 0.75             # ...when their radii are this similar. Chosen on V1; tile-overlap merging uses it too
@@ -199,6 +202,8 @@ selftrain:
       score_grid: [0.02, 0.03, 0.05, 0.075, 0.1, 0.15]
       min_precision: 0.85       # chosen cutoff: the most supported with precision >= this, counting
                                 # false ones as if every new scan crater were false (decoy rate x all)
+  retrain:                      # `python -m craters.retrain`: full retrains from ImageNet weights, EMA on
+    seeds: [1, 2, 3]            # each seed trains once on the catalog and once on catalog + supplement
   # `python -m craters.selftrain` (src/craters/selftrain.py)
   ignore_min_score: 0.5         # unconfirmed non-catalog detections this confident become "ignore", not "no crater"
   max_rounds: 3

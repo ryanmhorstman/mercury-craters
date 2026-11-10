@@ -12,8 +12,14 @@ Self-training (craters.selftrain) adds extra_labels: DEM-confirmed craters
 missing from the catalog, and confident detections to "ignore". V1 checkpoint
 selection always scores against the catalog alone.
 
+With detectors.cnn.ema.enabled, a running average of the weights (EMA) is kept
+alongside the trained model, and it is the average that is validated on V1 and
+saved. Single checkpoints of this training swing a lot from one V1 check to the
+next; the average is steadier.
+
 Test regions T1-T3 are never read here.
 """
+import copy
 import json
 import time
 
@@ -124,6 +130,25 @@ def photometric(image, rng):
     return x * 255.0
 
 
+class WeightAverage:
+    """Exponential moving average (EMA) of a model's weights, updated after every training step."""
+
+    def __init__(self, model, decay):
+        self.model = copy.deepcopy(model).eval().requires_grad_(False)
+        self.decay, self.steps = decay, 0
+
+    @torch.no_grad()
+    def update(self, model):
+        self.steps += 1
+        # Early on, a smaller decay lets the average leave the starting weights quickly.
+        decay = min(self.decay, (1 + self.steps) / (10 + self.steps))
+        for average, new in zip(self.model.state_dict().values(), model.state_dict().values()):
+            if average.is_floating_point():
+                average.lerp_(new, 1 - decay)
+            else:                               # integer buffers (batch-norm step counts) are copied
+                average.copy_(new)
+
+
 def f_beta(precision, recall, beta):
     """F-beta score; beta > 1 weights recall above precision, beta = 1 is F1."""
     b2 = beta ** 2
@@ -132,6 +157,7 @@ def f_beta(precision, recall, beta):
 
 def validate(model, cfg, params, tiles, catalog, images):
     """End-to-end V1 F1 and F-beta at each score cutoff, through the same path as the test run."""
+    was_training = model.training
     model.eval()
     twins = params["twin_suppression"]
     detector = Detector.from_model(model, params["level_downsample"], min_score=min(params["score_cutoffs"]), twins=twins)
@@ -144,7 +170,7 @@ def validate(model, cfg, params, tiles, catalog, images):
         overall = evaluate(catalog, kept, boxes, cfg["match"], cfg["evaluation"]["diameter_bins_km"])[0].iloc[0]
         rows.append({"score_cutoff": cutoff, **overall[["TP", "FP", "FN", "precision", "recall", "f1"]].to_dict(),
                      "fbeta": f_beta(overall["precision"], overall["recall"], params["selection_beta"])})
-    model.train()
+    model.train(was_training)
     return pd.DataFrame(rows)
 
 
@@ -192,6 +218,10 @@ def train(cfg):
     steps = params["epochs"] * len(loader)
     scheduler = torch.optim.lr_scheduler.OneCycleLR(optimizer, max_lr=params["lr"], total_steps=steps, pct_start=0.1)
     scaler = torch.amp.GradScaler(enabled=device == "cuda")
+    ema = params.get("ema") or {}
+    average = WeightAverage(model, ema["decay"]) if ema.get("enabled") else None
+    chosen = average.model if average else model      # the weights that are validated and saved
+    print(f"weights validated and saved: {'EMA, decay ' + str(ema['decay']) if average else 'the trained model'}", flush=True)
 
     out_dir = cfg["paths"]["models"]
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -210,20 +240,22 @@ def train(cfg):
             scaler.step(optimizer)
             scaler.update()
             scheduler.step()
+            if average:
+                average.update(model)
             totals["loss"] += loss.item()
             for k, v in parts.items():
                 totals[k] += v
         record = {"epoch": epoch, **{k: v / len(loader) for k, v in totals.items()}, "seconds": time.time() - start}
 
         if epoch % params["eval_every"] == 0 or epoch == params["epochs"]:
-            table = validate(model, cfg, params, tiles, catalog, val_images)
+            table = validate(chosen, cfg, params, tiles, catalog, val_images)
             top = table.loc[table["fbeta"].idxmax()]
             record.update({"v1_fbeta": top["fbeta"], "v1_f1": top["f1"], "v1_precision": top["precision"], "v1_recall": top["recall"],
                            "v1_cutoff": top["score_cutoff"]})
             if top["fbeta"] > best["fbeta"]:
                 best = {"fbeta": float(top["fbeta"]), "beta": params["selection_beta"], "f1": float(top["f1"]),
-                        "epoch": epoch, "score_cutoff": float(top["score_cutoff"])}
-                torch.save({"model": model.state_dict(), "epoch": epoch}, out_dir / f"{name}_best.pt")
+                        "epoch": epoch, "score_cutoff": float(top["score_cutoff"]), "ema": average is not None}
+                torch.save({"model": chosen.state_dict(), "epoch": epoch}, out_dir / f"{name}_best.pt")
         history.append(record)
         print(" ".join(f"{k}={v:.4g}" if isinstance(v, float) else f"{k}={v}" for k, v in record.items()), flush=True)
 
