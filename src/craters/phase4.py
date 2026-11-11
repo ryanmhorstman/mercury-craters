@@ -6,6 +6,10 @@
     python -m craters.phase4 review    # open the review app at http://localhost:8765
     python -m craters.phase4 report    # original vs adjusted metrics, from the verdicts so far
 
+    python -m craters.phase4 build --calibrated    # queue of the published calibrated run's unmatched detections
+    python -m craters.phase4 review --calibrated   # review them (any first N of the queue is a random sample)
+    python -m craters.phase4 report --calibrated   # how many of its detections are false
+
 Verdicts live in adjudication/verdicts.csv, which is tracked in git. They are
 hand-made data, unlike everything under data/ and outputs/.
 """
@@ -14,9 +18,9 @@ import json
 
 import pandas as pd
 
-from .adjudicate import adjusted_metrics, build_items, catalog_summary, verdicts_for
+from .adjudicate import adjusted_metrics, build_items, catalog_summary, false_positive_summary, verdicts_for
 from .catalog import load_eval_catalog
-from .config import load_config
+from .config import load_config, run_name
 from .metrics import bin_labels
 from .registration import matched_offsets, register
 
@@ -146,6 +150,42 @@ def build(cfg):
     print(pd.crosstab(to_review["kind"], to_review["bin"]).to_string())
 
 
+def calibrated_items(cfg):
+    """The published calibrated global run's unmatched detections in T1-T3, in random order, and its metrics table.
+
+    Only detections are queued, so the review answers one question: how many of
+    the run's detections the thesis doesn't list are real craters.
+    """
+    name = f"global_{run_name(cfg['detectors']['cnn'])}_calibrated"
+    detections = pd.read_parquet(cfg["paths"]["detections"] / f"{name}.parquet")
+    items, tables = build_items(load_eval_catalog(cfg), {name: detections}, list(cfg["regions"]["test"].values()),
+                                cfg["match"], cfg["evaluation"]["diameter_bins_km"], cfg["seed"])
+    items = items[items["kind"] == "detection"].reset_index(drop=True)
+    items["position"] = range(1, len(items) + 1)
+    return name, items, tables[name]
+
+
+def build_calibrated(cfg):
+    name, items, _ = calibrated_items(cfg)
+    items.to_csv(cfg["paths"]["review_items_calibrated"], index=False)
+    to_review = items[items["auto_verdict"] == ""]
+    print(f"{name}: {len(items)} unmatched detections in T1-T3, {len(to_review)} to review "
+          f"({len(items) - len(to_review)} auto-marked duplicates)")
+    print(to_review["bin"].value_counts().reindex(bin_labels(cfg["evaluation"]["diameter_bins_km"])).to_string())
+
+
+def report_calibrated(cfg):
+    name, items, table = calibrated_items(cfg)
+    verdicts, _ = verdicts_for(items, cfg["paths"]["verdicts"])
+    summary = false_positive_summary(items, verdicts, table, cfg["evaluation"]["diameter_bins_km"])
+    out = cfg["paths"]["phase4"]
+    out.mkdir(parents=True, exist_ok=True)
+    summary.to_csv(out / "calibrated_false_positives.csv", index=False)
+    print(f"{name}, T1-T3: matched detections count as real, reviewed ones as judged, "
+          f"the rest at their bin's reviewed rate (95% interval)")
+    print(summary.round(3).to_string(index=False))
+
+
 def report(cfg):
     catalog = load_eval_catalog(cfg)
     bins = cfg["evaluation"]["diameter_bins_km"]
@@ -181,8 +221,12 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("step", choices=["register", "register-labels", "build", "review", "report"])
     parser.add_argument("--port", type=int, default=8765)
+    parser.add_argument("--calibrated", action="store_true",
+                        help="build / review / report: the published calibrated run's unmatched detections only")
     args = parser.parse_args()
     cfg = load_config()
+    if args.calibrated and args.step in ("build", "report"):
+        return build_calibrated(cfg) if args.step == "build" else report_calibrated(cfg)
     if args.step == "register":
         register_catalog(cfg)
     elif args.step == "register-labels":
@@ -194,9 +238,10 @@ def main():
     else:
         from .review_app import ReviewState, serve
 
-        if not cfg["paths"]["review_items"].exists():
-            build(cfg)
-        state = ReviewState(cfg["paths"]["review_items"], cfg["paths"]["verdicts"], cfg["paths"]["basemap"],
+        items_path = cfg["paths"]["review_items_calibrated" if args.calibrated else "review_items"]
+        if not items_path.exists():
+            build_calibrated(cfg) if args.calibrated else build(cfg)
+        state = ReviewState(items_path, cfg["paths"]["verdicts"], cfg["paths"]["basemap"],
                             cfg["paths"]["basemap"].parent / "chips")
         serve(state, args.port)
 

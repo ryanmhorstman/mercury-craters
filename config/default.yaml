@@ -26,6 +26,7 @@ paths:
   phase2: outputs/phase2
   models: data/models
   review_items: data/processed/review_items.csv
+  review_items_calibrated: data/processed/review_items_calibrated.csv   # phase4 --calibrated
   verdicts: adjudication/verdicts.csv      # tracked in git: hand-made data
   phase4: outputs/phase4
   global: outputs/global

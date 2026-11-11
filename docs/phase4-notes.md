@@ -169,3 +169,34 @@ fall outside the 0.5·D matching anyway.
 Roughly 200–300 verdicts give per-bin rates to within about ±5–10 percentage points for the large
 bins. 5–10 km has the most items and matters most, so the random order naturally spends most
 of your time there. About 2–3 seconds per item means ~10–15 minutes per 300.
+
+## False positives of the published run (`--calibrated`)
+
+```
+conda run -n mercury-craters python -m craters.phase4 build --calibrated    # queue
+conda run -n mercury-craters python -m craters.phase4 review --calibrated   # review app: http://localhost:8765
+conda run -n mercury-craters python -m craters.phase4 report --calibrated   # estimate, any time
+```
+
+The verdicts above were given on the raw runs, before calibration. To estimate how
+many detections of the published run (`global_cnn_reg_f2_calibrated`) are false, its
+unmatched detections in T1–T3 get a queue of their own,
+`data/processed/review_items_calibrated.csv`:
+
+| | 5–10 | 10–20 | 20–50 | 50+ | Total |
+|---|---:|---:|---:|---:|---:|
+| Detections | 1,008 | 598 | 312 | 62 | 1,980 |
+| Matched to the thesis | 595 | 462 | 234 | 45 | 1,336 |
+| **To review** | 413 | 136 | 72 | 17 | **638** |
+
+4 more are auto-marked duplicates. The queue is in random order (seed 42), so any first
+N items are a random sample: about 300 give the overall rate to within about ±6 points.
+Verdicts go to the same `adjudication/verdicts.csv`. A verdict carries over only to the
+identical circle, and calibration resized every detection, so this review starts from zero.
+
+The report counts matched detections as real, reviewed ones as judged, and the rest at
+their size bin's reviewed rate, with a 95% interval
+(`outputs/phase4/calibrated_false_positives.csv`). A bin with no verdicts yet has no estimate.
+
+Unlike the Phase 4 queue, this one holds no catalog craters, so it isn't blind: every circle
+is a detection the thesis doesn't list.

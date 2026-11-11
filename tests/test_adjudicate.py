@@ -101,3 +101,24 @@ def test_second_circle_on_a_catalogued_crater_is_auto_marked_duplicate(match):
     det = pd.DataFrame({"lat": [10.0, 10.02], "lon": [285.0, 285.02], "diameter_km": [20.0, 17.0], "score": [0.9, 0.5]})
     items, _ = build_items(catalog, {"A": det}, [BOX], match, BINS, seed=0)
     assert items["auto_verdict"].tolist() == ["duplicate"]
+
+
+def test_false_positive_summary_from_a_partial_review(match):
+    from craters.adjudicate import false_positive_summary
+
+    catalog = pd.DataFrame([crater(0, 5, 280, 12)])
+    detections = pd.DataFrame({"lat": [5.0, 10.0, 15.0, 20.0, 25.0], "lon": [280.0] * 5,
+                               "diameter_km": [12, 6, 6, 6, 6], "score": 1.0})   # one matched, four unmatched 5-10 km
+    items, tables = build_items(catalog, {"run": detections}, [BOX], match, BINS, seed=0)
+    table = tables["run"]
+    nothing = false_positive_summary(items, {}, table, BINS).set_index("bin")
+    assert np.isnan(nothing.loc["5-10", "precision_est"])          # no verdicts yet: unknown, not "all false"
+
+    by_lat = items.set_index("lat")["item_id"]
+    verdicts = {by_lat[10.0]: "real", by_lat[15.0]: "not_real"}  # half of the reviewed ones are real
+    out = false_positive_summary(items, verdicts, table, BINS).set_index("bin")
+    row = out.loc["5-10"]
+    assert (row["detections"], row["unmatched"], row["reviewed"], row["reviewed_real"]) == (4, 4, 2, 1)
+    assert row["precision_est"] == pytest.approx(0.5) and row["false_est"] == pytest.approx(2.0)
+    assert row["precision_lo"] < 0.5 < row["precision_hi"]
+    assert out.loc["all", "precision_est"] == pytest.approx(3 / 5)  # + the matched 12 km crater

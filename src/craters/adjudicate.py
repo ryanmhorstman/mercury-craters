@@ -23,7 +23,7 @@ import pandas as pd
 
 from .dedupe import dedupe_circles
 from .match import candidate_pairs
-from .metrics import bin_labels, evaluate
+from .metrics import bin_labels, evaluate, wilson_interval
 
 VERDICTS = ("real", "not_real", "unsure")
 VERDICT_COLUMNS = ["item_id", "verdict", "lat", "lon", "diameter_km", "kind", "reviewed_at"]
@@ -207,5 +207,39 @@ def catalog_summary(items, verdicts, n_catalog_counted, bins):
             "to_review": int((in_bin & (items["auto_verdict"] == "")).sum()),
             "catalog_not_real_est": not_real, "new_real_craters_est": new_real,
             "catalog_completeness_est": real_in_catalog / (real_in_catalog + new_real) if real_in_catalog + new_real else np.nan,
+        })
+    return pd.DataFrame(rows)
+
+
+def false_positive_summary(items, verdicts, table, bins):
+    """How many of one run's detections are real craters, from a review of its unmatched ones.
+
+    items: the run's unmatched detections (kind "detection"); table: its metrics table.
+    Matched detections are taken as real, auto-marked duplicates as false. Of the rest,
+    the reviewed share that is real (with its 95% Wilson interval) stands in for the
+    unreviewed ones of the same diameter bin. Returns one row per bin, plus "all".
+    """
+    p, verdict = p_real(items, verdicts)
+    auto = items["auto_verdict"].fillna("") != ""
+    rows = []
+    for label in ["all", *bin_labels(bins)]:
+        in_bin = np.ones(len(items), bool) if label == "all" else (items["bin"] == label).to_numpy()
+        orig = table.set_index("bin").loc[label]
+        human = in_bin & ~auto.to_numpy()
+        reviewed = human & verdict.isin(["real", "not_real"]).to_numpy()
+        n_reviewed, n_real = int(reviewed.sum()), int((verdict[reviewed] == "real").sum())
+        unreviewed = int(human.sum()) - n_reviewed
+        rate_lo, rate_hi = wilson_interval(n_real, n_reviewed)
+        # "all" sums the per-bin estimates; a bin's own rate fills in its unreviewed items.
+        # Until every bin in it has a verdict, the estimate is unknown (NaN), not "all false".
+        real = orig["TP"] + p.to_numpy()[in_bin].sum()
+        n = orig["TP"] + orig["FP"]
+        rows.append({
+            "bin": label, "detections": int(n), "matched_thesis": int(orig["TP"]), "unmatched": int(orig["FP"]),
+            "auto_duplicates": int((in_bin & auto.to_numpy()).sum()), "reviewed": n_reviewed, "reviewed_real": n_real,
+            "real_rate": n_real / n_reviewed if n_reviewed else np.nan, "real_rate_lo": rate_lo, "real_rate_hi": rate_hi,
+            "false_est": n - real, "precision_est": real / n if n else np.nan,
+            "precision_lo": (orig["TP"] + n_real + rate_lo * unreviewed) / n if n and n_reviewed else np.nan,
+            "precision_hi": (orig["TP"] + n_real + rate_hi * unreviewed) / n if n and n_reviewed else np.nan,
         })
     return pd.DataFrame(rows)
