@@ -194,6 +194,12 @@ This is a list only; nobody has been contacted. Recency is limited to what I ver
 
 ## 7. Recommendation
 
+**Update 2026-11-11:** step 1 of the minimum extra work is done
+([catalog-comparison.md](catalog-comparison.md)). The precision of the published run is now
+reviewed on 302 random detections ([phase4-notes.md](phase4-notes.md)), and agrees with scoring
+against the thesis and Herrick together (0.81 and 0.79).
+
+
 **Frame it as a three-catalog comparison with blind adjudication, not as "a new catalog".** Draft
 title idea: *"What a strict hand-mapped Mercury crater catalog misses: CNN detection, blind
 adjudication, and comparison with Herrick et al. (2018)."*

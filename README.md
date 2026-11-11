@@ -31,6 +31,16 @@ in about 7 minutes on one consumer GPU. In the three held-out test areas (T1–T
 The elevation model independently confirms 1,160 craters ≥ 20 km that the thesis doesn't list
 ([docs/self-training.md](docs/self-training.md)). Training on them didn't make the model better.
 
+**Against the published catalogs** ([docs/catalog-comparison.md](docs/catalog-comparison.md)), in
+the test areas:
+
+- The CNN agrees with the thesis about as well as Herrick et al. (2018), an independent hand-made
+  catalog, does. Herrick lists 62% of the thesis's craters, and the CNN finds 67%.
+- Counting a detection as correct when the thesis or Herrick lists it gives precision 0.79, close
+  to the 0.81 from the review by eye.
+- 96% of the DEM-confirmed craters are in Herrick's catalog: missing from the thesis, not from the
+  literature.
+
 ## Setup
 
 ```
@@ -53,6 +63,7 @@ workbook is not public; the pipeline expects a copy at `data/raw/Mercury Crater 
 | Calibrated run | `python -m craters.calibrate`, then `python -m craters.compare_global --calibrated` | [docs/global-run.md](docs/global-run.md) |
 | Self-training | `python -m craters.demcheck`, then `python -m craters.selftrain` | [docs/self-training.md](docs/self-training.md) |
 | Supplemented catalog | `python -m craters.supplement`, then `python -m craters.supplement --score` | [docs/self-training.md](docs/self-training.md) |
+| Published catalogs | `python -m craters.compare_catalogs` (Herrick 2018, La Grassa 2025) | [docs/catalog-comparison.md](docs/catalog-comparison.md) |
 | Retrain comparison | `python -m craters.retrain` (6 trainings, about 4 hours of GPU) | [docs/self-training.md](docs/self-training.md) |
 
 Tests: `conda run -n mercury-craters python -m pytest`
