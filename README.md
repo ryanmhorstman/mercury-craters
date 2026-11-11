@@ -3,6 +3,34 @@
 Automated crater detection on MESSENGER imagery of Mercury, compared against my
 hand-built master's thesis crater catalog (Horstman 2016, NAU).
 
+## Results so far
+
+The published model is `cnn_reg_f2`, after calibration towards the thesis's definition of a
+crater ([docs/global-run.md](docs/global-run.md)). It maps every crater of 5 km or more on Mercury
+in about 7 minutes on one consumer GPU. In the three held-out test areas (T1–T3), craters ≥ 5 km:
+
+| D (km) | Detections | Precision against the thesis | Precision after review (95%) |
+|---|---:|---:|---|
+| all | 1,980 | 0.67 | **0.81** (0.80–0.82) |
+| 5–10 | 1,008 | 0.59 | 0.71 (0.70–0.73) |
+| 10–20 | 598 | 0.77 | 0.89 (0.87–0.90) |
+| 20–50 | 312 | 0.75 | 0.95 (0.93–0.96) |
+| 50+ | 62 | 0.73 | 0.97 (0.92–0.98) |
+
+- **Against the thesis alone**, the model finds 68% of the thesis's craters, and 67% of its
+  detections are in the thesis.
+- **Not every detection outside the thesis is wrong.** The thesis counted only craters with
+  well-defined rims. 302 of the 638 detections it doesn't list were reviewed by eye, in random order
+  ([docs/phase4-notes.md](docs/phase4-notes.md)). 42% of them are real craters, so about 1 in 5
+  detections is false.
+- **False detections are mostly small.** About 29% of 5–10 km detections are false, against 5% or
+  fewer from 20 km up.
+- The reviewer is the thesis author, and the queue held only detections the thesis lacks, so the
+  review wasn't blind.
+
+The elevation model independently confirms 1,160 craters ≥ 20 km that the thesis doesn't list
+([docs/self-training.md](docs/self-training.md)). Training on them didn't make the model better.
+
 ## Setup
 
 ```
