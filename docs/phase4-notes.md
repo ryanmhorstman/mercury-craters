@@ -200,3 +200,24 @@ their size bin's reviewed rate, with a 95% interval
 
 Unlike the Phase 4 queue, this one holds no catalog craters, so it isn't blind: every circle
 is a detection the thesis doesn't list.
+
+### Result (2026-11-11): about 1 in 5 detections is false, mostly at 5–10 km
+
+The first 304 items of the queue are reviewed, a random sample of 302 of the 638 (8 unsure).
+Matched detections count as real; the 95% intervals come from the review sample alone.
+
+| D (km) | detections | in the thesis | unmatched judged real | est. false | precision (95%) |
+|---|---:|---:|---:|---:|---|
+| all | 1,980 | 1,336 | 124 of 294 (42%) | 377 (19%) | **0.81** (0.80–0.82) |
+| 5–10 | 1,008 | 595 | 57 of 193 (30%) | 291 (29%) | 0.71 (0.70–0.73) |
+| 10–20 | 598 | 462 | 28 of 56 (50%) | 68 (11%) | 0.89 (0.87–0.90) |
+| 20–50 | 312 | 234 | 32 of 37 (86%) | 16 (5%) | 0.95 (0.93–0.96) |
+| 50+ | 62 | 45 | 7 of 8 | 2 (3%) | 0.97 (0.92–0.98) |
+
+- Against the thesis alone, the run's precision is 0.675. Counting the real craters the thesis
+  doesn't list, it is about 0.81.
+- Most false detections are 5–10 km: 291 of about 377. From 20 km up, about 95% are real,
+  in line with the DEM check (87–90% backed by the thesis or the DEM, a strict lower bound).
+- About 267 of the 644 unmatched detections are real craters missing from the thesis.
+- The queue wasn't blind (every circle was an unmatched detection), and the verdicts measure
+  agreement with the author looking at the 166 m mosaic now.
