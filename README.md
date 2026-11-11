@@ -24,6 +24,8 @@ workbook is not public; the pipeline expects a copy at `data/raw/Mercury Crater 
 | Global run | `conda run -n mercury-craters python -m craters.phase3 global`, then `python -m craters.compare_global` | [docs/global-run.md](docs/global-run.md) |
 | Calibrated run | `python -m craters.calibrate`, then `python -m craters.compare_global --calibrated` | [docs/global-run.md](docs/global-run.md) |
 | Self-training | `python -m craters.demcheck`, then `python -m craters.selftrain` | [docs/self-training.md](docs/self-training.md) |
+| Supplemented catalog | `python -m craters.supplement`, then `python -m craters.supplement --score` | [docs/self-training.md](docs/self-training.md) |
+| Retrain comparison | `python -m craters.retrain` (6 trainings, about 4 hours of GPU) | [docs/self-training.md](docs/self-training.md) |
 
 Tests: `conda run -n mercury-craters python -m pytest`
 

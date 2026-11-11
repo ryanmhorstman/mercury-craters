@@ -99,8 +99,8 @@ not just good on V1. Any further training moves away from that point.
 
 To test the pseudo-labels properly, the training itself needs to be steadier:
 average the weights over time (EMA/SWA), then compare full retrains with and
-without pseudo-labels over several seeds. That costs hours of GPU time per
-comparison, and is left for later.
+without pseudo-labels over several seeds. That comparison was run later; see
+"Retraining on the supplemented catalog" at the end of this page.
 
 The confirmed craters stand on their own: `outputs/selftrain/new_craters.csv`
 is a supplement to the catalog, confirmed by evidence the thesis didn't use,
@@ -244,3 +244,94 @@ Two cautions when reading the supplemented columns:
   supplemented one.
 - V1 has only 8 new craters, so its supplemented scores barely differ, and its
   50+ km bin (8 and 13 craters) is too small to read.
+
+## Retraining on the supplemented catalog (`src/craters/retrain.py`)
+
+    python -m craters.retrain             # 6 trainings, ~42 min each on an RTX 3060 Ti
+    python -m craters.retrain --report    # the comparison alone
+
+This is the test the fine-tuning couldn't give. Every model is trained from
+ImageNet weights with the recipe of `cnn_reg_f2`, plus weight averaging, in two
+arms and three seeds (1, 2, 3):
+
+- **catalog:** the registered thesis catalog, as for `cnn_reg_f2`.
+- **supplement:** the same, plus the 491 new craters of the supplemented
+  catalog that lie in the train area.
+
+New craters elsewhere are never trained on. In both arms the checkpoint and the
+calibration are chosen on V1 against the thesis catalog. Each model then gets
+the global run and the calibration, like `cnn_reg_f2`.
+
+**Weight averaging (EMA).** `detectors.cnn.ema` (off by default) keeps an
+exponential moving average of the weights, with a decay of 0.999 per step
+(about the last 2.5 epochs). When it is on, the average is what is validated on
+V1 and saved.
+
+### Result: the supplement doesn't help, and `cnn_reg_f2` stays
+
+F1 for craters >= 5 km, calibrated global run, mean ± standard deviation over
+the three seeds:
+
+| model | V1, thesis | T1-T3, thesis | T1-T3, supplemented |
+|---|---|---|---|
+| `cnn_reg_f2` (published) | 0.678 | 0.675 | 0.688 |
+| catalog arm | 0.581 ± 0.022 | 0.596 ± 0.030 | 0.607 ± 0.034 |
+| supplement arm | 0.559 ± 0.018 | 0.591 ± 0.036 | 0.610 ± 0.039 |
+
+| seed | catalog: V1 / T1-T3 (thesis) | supplement: V1 / T1-T3 (thesis) |
+|---|---|---|
+| 1 | 0.577 / 0.598 | 0.544 / 0.552 |
+| 2 | 0.604 / 0.624 | 0.578 / 0.622 |
+| 3 | 0.562 / 0.565 | 0.555 / 0.599 |
+
+The rule set beforehand was to replace `cnn_reg_f2` only if the supplement arm
+beat it on V1 by more than its seed spread. It is 0.12 below, so `cnn_reg_f2`
+stays the published model.
+
+**The two arms are the same within the seed spread.** On V1 the supplement arm
+is lower in all three seeds, by 0.022 on average, which is about one standard
+deviation. On T1-T3 the arms differ by 0.005 against the thesis catalog and by
+0.003 the other way against the supplemented one.
+
+**The new labels do change what the model finds, as intended.** T1-T3, craters
+of 50 km and more, mean over seeds:
+
+| arm | recall, thesis | precision, thesis | recall, supplemented | precision, supplemented | F1, supplemented |
+|---|---|---|---|---|---|
+| catalog | 0.86 | 0.78 | 0.74 | 0.92 | 0.816 |
+| supplement | 0.92 | 0.58 | 0.89 | 0.74 | 0.806 |
+
+Trained on the supplement, the model finds more big craters (recall on the
+supplemented catalog 0.89 against 0.74), but it also draws more big circles
+that neither catalog has, and F1 ends the same. At 20-50 km the pattern is the
+same and smaller. Below 20 km, where there are no new labels, the arms don't
+differ beyond the spread. Per-bin scores of every model are in
+`outputs/selftrain/retrain/scores_<model>.csv`.
+
+**The seed spread is large.** One standard deviation is 0.02-0.04 in F1, and
+most of it comes from the 5-10 km bin, where precision on T1-T3 ranges
+from 0.3 to 0.5 between seeds. A difference between two single trainings of
+this recipe means little below about 0.05.
+
+**EMA did not steady the training.** V1 F2 of the averaged model still swings
+by up to 0.15 between checks 4 epochs apart (for example 0.50, 0.65, 0.60 in
+`retrain_catalog_s2`), and the best checkpoint fell at epoch 8, 12, 28 or 40
+depending on the run.
+
+### What this does and doesn't show
+
+- No retrain comes near `cnn_reg_f2`: the best of the six has V1 F1 0.604. The
+  catalog arm has the recipe of `cnn_reg_f2` with EMA and another seed, and it
+  lands 0.10 lower, over four standard deviations.
+- That gap has two possible causes this run can't separate: `cnn_reg_f2` is a
+  very lucky training, or EMA at this decay makes the model worse. There was no
+  arm without EMA. Three trainings of the catalog arm with EMA off would settle
+  it.
+- Whatever the cause, both arms share it, so the comparison between the arms
+  holds: adding 491 DEM-backed craters to the labels doesn't improve agreement
+  with the thesis catalog, and doesn't improve F1 on the supplemented catalog
+  either.
+
+The supplemented catalog keeps its use for scoring. The six models and their
+global runs are kept outside git, as `data/models/retrain_*` and
+`data/detections/global_retrain_*`.
